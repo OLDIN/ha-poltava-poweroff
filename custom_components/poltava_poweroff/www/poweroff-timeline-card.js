@@ -140,8 +140,12 @@ class PowerOffTimelineCard extends HTMLElement {
   buildPattern(periods) {
     const slots = Array(48).fill('1');
     periods.forEach(period => {
-      const start = Math.max(0, Math.min(48, Math.round(Number(period.start) * 2)));
-      const end = Math.max(start, Math.min(48, Math.round(Number(period.end) * 2)));
+      // Використовуємо Math.floor для початку та Math.ceil для кінця,
+      // щоб правильно покрити періоди з хвилинами (наприклад, 14:30)
+      const startHour = Number(period.start);
+      const endHour = Number(period.end);
+      const start = Math.max(0, Math.min(48, Math.floor(startHour * 2)));
+      const end = Math.max(start, Math.min(48, Math.ceil(endHour * 2)));
       for (let i = start; i < end; i += 1) {
         slots[i] = '0';
       }
