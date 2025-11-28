@@ -1,5 +1,5 @@
 {
-    "name": "Lviv PowerOff",
-    "homeassistant": "2024.7.0",
-    "render_readme": true
-  }
+  "name": "Poltava PowerOff",
+  "homeassistant": "2024.7.0",
+  "render_readme": true
+}

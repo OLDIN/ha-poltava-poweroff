@@ -1,16 +1,15 @@
-"""Provides the implementation of the Lviv PowerOff calendar."""
+"""Provides the implementation of the Poltava PowerOff calendar."""
 
 import datetime
 import logging
 
-from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.components.calendar import CalendarEntity, CalendarEntityDescription, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .coordinator import LvivPowerOffCoordinator
+from .coordinator import PoltavaPowerOffCoordinator
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,31 +19,27 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Yasno outages calendar platform."""
+    """Set up the Poltava outages calendar platform."""
     LOGGER.debug("Setup new entry: %s", config_entry)
-    coordinator: LvivPowerOffCoordinator = config_entry.runtime_data
-    async_add_entities([LvivPowerOffCalendar(coordinator)])
+    coordinator: PoltavaPowerOffCoordinator = config_entry.runtime_data
+    async_add_entities([PoltavaPowerOffCalendar(coordinator)])
 
 
-class LvivPowerOffCalendar(CalendarEntity):
+class PoltavaPowerOffCalendar(CalendarEntity):
     """Implementation of calendar entity."""
 
     def __init__(
         self,
-        coordinator: LvivPowerOffCoordinator,
+        coordinator: PoltavaPowerOffCoordinator,
     ) -> None:
-        """Initialize the LvivPowerOffCoordinator entity."""
+        """Initialize the PoltavaPowerOffCoordinator entity."""
         super().__init__()
         self.coordinator = coordinator
-        self.entity_description = EntityDescription(
+        self.entity_description = CalendarEntityDescription(
             key="calendar",
-            name="Lviv PowerOff Calendar",
+            name="Poltava PowerOff Calendar",
         )
-        self._attr_unique_id = (
-            f"{coordinator.config_entry.entry_id}-"
-            f"{coordinator.group}-"
-            f"{self.entity_description.key}"
-        )
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}-{coordinator.group}-{self.entity_description.key}"
 
     @property
     def event(self) -> CalendarEvent | None:

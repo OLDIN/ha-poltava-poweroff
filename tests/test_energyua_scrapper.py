@@ -3,8 +3,8 @@ from pathlib import Path
 from aioresponses import aioresponses
 import pytest
 
-from lviv_poweroff.energyua_scrapper import EnergyUaScrapper
-from lviv_poweroff.entities import PowerOffPeriod
+from poltava_poweroff.energyua_scrapper import EnergyUaScrapper
+from poltava_poweroff.entities import PowerOffPeriod
 
 
 def load_energyua_page(test_page: str) -> str:
@@ -52,7 +52,7 @@ def load_energyua_page(test_page: str) -> str:
 async def test_energyua_scrapper(group, test_page, expected_result) -> None:
     # Given a response from the EnergyUa website
     with aioresponses() as mock:
-        mock.get(f"https://lviv.energy-ua.info/grupa/{group}", body=load_energyua_page(test_page))
+        mock.get(f"https://energy-ua.info/cherga/{group}", body=load_energyua_page(test_page))
         # When scrapper is called for power-off periods
         scrapper = EnergyUaScrapper(group)
         poweroffs = await scrapper.get_power_off_periods()

@@ -1,4 +1,4 @@
-"""Provides the LvivPowerOffCoordinator class for polling power off periods."""
+"""Provides the PoltavaPowerOffCoordinator class for polling power off periods."""
 
 from datetime import datetime, timedelta
 import logging
@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 TIMEFRAME_TO_CHECK = timedelta(hours=24)
 
 
-class LvivPowerOffCoordinator(DataUpdateCoordinator):
+class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
     """Coordinates the polling of power off periods."""
 
     config_entry: ConfigEntry
@@ -40,7 +40,9 @@ class LvivPowerOffCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch power off periods from scrapper."""
         try:
+            LOGGER.debug("Starting _async_update_data for group %s", self.group)
             await self._fetch_periods()
+            LOGGER.debug("After _fetch_periods, periods count: %d", len(self.periods))
             return {}  # noqa: TRY300
         except Exception as err:
             LOGGER.exception("Cannot obtain power offs periods for group %s", self.group)
@@ -48,7 +50,9 @@ class LvivPowerOffCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(msg) from err
 
     async def _fetch_periods(self) -> None:
+        LOGGER.debug("Calling api.get_power_off_periods() for group %s", self.group)
         self.periods = await self.api.get_power_off_periods()
+        LOGGER.debug("Fetched %d periods: %s", len(self.periods), self.periods)
 
     def _get_next_power_change_dt(self, on: bool) -> datetime | None:
         """Get the next power on/off."""
@@ -115,3 +119,13 @@ class LvivPowerOffCoordinator(DataUpdateCoordinator):
             end=end,
             summary=STATE_OFF,
         )
+
+    def get_next_off_time(self) -> str | None:
+        """Get the next poweroff time as string."""
+        dt = self.next_poweroff
+        return dt.isoformat() if dt else None
+
+    def get_next_on_time(self) -> str | None:
+        """Get next connectivity time as string."""
+        dt = self.next_poweron
+        return dt.isoformat() if dt else None

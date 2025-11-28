@@ -1,8 +1,12 @@
 {
-    "name": "ha-lviv-poweroff",
-    "dockerFile": "Dockerfile",
+    "name": "ha-poltava-poweroff",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "."
+    },
     "forwardPorts": [8123],
     "postCreateCommand": "scripts/setup",
+    "postStartCommand": "nohup bash scripts/develop > /tmp/ha.log 2>&1 &",
     "portsAttributes": {
         "8123": {
             "label": "Home Assistant",

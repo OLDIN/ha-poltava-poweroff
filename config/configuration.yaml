@@ -1,10 +1,10 @@
 # Remote Python Debugger
 # https://www.home-assistant.io/integrations/debugpy/
-debugpy:
+# debugpy:
 
 # Logger
 # https://www.home-assistant.io/integrations/logger/
 logger:
   default: info
   logs:
-    custom_components.lviv_poweroff: debug
+    custom_components.poltava_poweroff: debug

@@ -13,20 +13,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import STATE_OFF, STATE_ON
-from .coordinator import LvivPowerOffCoordinator
+from .coordinator import PoltavaPowerOffCoordinator
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
-class LvivPowerOffSensorDescription(SensorEntityDescription):
-    """Lviv PowerOff entity description."""
+class PoltavaPowerOffSensorDescription(SensorEntityDescription):
+    """Poltava PowerOff entity description."""
 
-    val_func: Callable[[LvivPowerOffCoordinator], Any]
+    val_func: Callable[[PoltavaPowerOffCoordinator], Any]
 
 
-SENSOR_TYPES: tuple[LvivPowerOffSensorDescription, ...] = (
-    LvivPowerOffSensorDescription(
+SENSOR_TYPES: tuple[PoltavaPowerOffSensorDescription, ...] = (
+    PoltavaPowerOffSensorDescription(
         key="electricity",
         icon="mdi:transmission-tower",
         device_class=SensorDeviceClass.ENUM,
@@ -34,14 +34,14 @@ SENSOR_TYPES: tuple[LvivPowerOffSensorDescription, ...] = (
         options=[STATE_ON, STATE_OFF],
         val_func=lambda coordinator: coordinator.current_state,
     ),
-    LvivPowerOffSensorDescription(
+    PoltavaPowerOffSensorDescription(
         key="next_poweroff",
         icon="mdi:calendar-remove",
         device_class=SensorDeviceClass.TIMESTAMP,
         name="Next power off",
         val_func=lambda coordinator: coordinator.next_poweroff,
     ),
-    LvivPowerOffSensorDescription(
+    PoltavaPowerOffSensorDescription(
         key="next_poweron",
         icon="mdi:calendar-check",
         device_class=SensorDeviceClass.TIMESTAMP,
@@ -56,26 +56,38 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Lviv PowerOff sensors."""
+    """Set up the Poltava PowerOff sensors."""
     LOGGER.debug("Setup new entry: %s", config_entry)
-    coordinator: LvivPowerOffCoordinator = config_entry.runtime_data
-    async_add_entities(LvivPowerOffSensor(coordinator, description) for description in SENSOR_TYPES)
+    coordinator: PoltavaPowerOffCoordinator = config_entry.runtime_data
+    async_add_entities(PoltavaPowerOffSensor(coordinator, description) for description in SENSOR_TYPES)
 
 
-class LvivPowerOffSensor(SensorEntity):
+class PoltavaPowerOffSensor(SensorEntity):
     def __init__(
         self,
-        coordinator: LvivPowerOffCoordinator,
-        entity_description: LvivPowerOffSensorDescription,
+        coordinator: PoltavaPowerOffCoordinator,
+        entity_description: PoltavaPowerOffSensorDescription,
     ) -> None:
         """Initialize the sensor."""
         self.coordinator = coordinator
         self.entity_description = entity_description
-        self._attr_unique_id = (
-            f"{coordinator.config_entry.entry_id}-" f"{coordinator.group}-" f"{self.entity_description.key}"
-        )
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}-{coordinator.group}-{self.entity_description.key}"
 
     @property
     def native_value(self) -> str | None:
         """Return the state of the sensor."""
         return self.entity_description.val_func(self.coordinator)  # type: ignore
+
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes."""
+        periods = []
+        for period in self.coordinator.periods:
+            if period.today:
+                periods.append({"start": period.start, "end": period.end})
+
+        return {
+            "poweroff_periods": periods,
+            "next_off": self.coordinator.get_next_off_time(),
+            "next_on": self.coordinator.get_next_on_time(),
+        }

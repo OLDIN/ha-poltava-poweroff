@@ -1,4 +1,4 @@
-"""Config flow for Lviv Power Offline integration."""
+"""Config flow for Poltava Power Offline integration."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -35,19 +36,17 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     # Return info that you want to store in the config entry.
     return {
-        "title": "Lviv Power Offline",
+        "title": "Poltava Power Offline",
         POWEROFF_GROUP_CONF: data[POWEROFF_GROUP_CONF],
     }
 
 
-class LvivPowerOffConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Lviv Power Offline."""
+class PoltavaPowerOffConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Poltava Power Offline."""
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -61,9 +60,7 @@ class LvivPowerOffConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_create_entry(title=info["title"], data=user_input)
 
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
+        return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors)
 
 
 class CannotConnect(HomeAssistantError):
