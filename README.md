@@ -48,7 +48,11 @@ Integration also provides a calendar view of planned outages. You can add it to 
 Starting from the bundled `poweroff-timeline-card.js`, the Lovelace resource is registered automatically, so Home Assistant OS / Supervised requires no extra tweaks:
 
 1. Go to **Settings → Devices & Services**, add **Poltava PowerOff**, and select your queue.
-2. In your Lovelace dashboard choose **Edit → Add card → Custom: Power Off Timeline Card** (if the GUI does not list custom cards, click **Manual** and paste the snippet below):
+2. Click the badge below (or copy the link) to open Home Assistant’s card editor with a pre-filled configuration. The only thing you’ll need to adjust is the entity ID if it differs from `sensor.power_state`.
+
+[![Add Lovelace Card via My Home Assistant](https://my.home-assistant.io/badges/lovelace_card.svg)](https://my.home-assistant.io/redirect/lovelace_card/?config=%7B%22type%22%3A%22custom%3Apoweroff-timeline-card%22%2C%22entity%22%3A%22sensor.power_state%22%2C%22title%22%3A%22Outages%20Today%22%7D)
+
+3. Alternatively, open your Lovelace dashboard and choose **Edit → Add card → Custom: Power Off Timeline Card** (if the GUI does not list custom cards, click **Manual** and paste the snippet below):
 
 ```yaml
 type: custom:poweroff-timeline-card
@@ -56,7 +60,7 @@ entity: sensor.power_state  # replace with your sensor.<id>
 title: Outages Today
 ```
 
-3. Reload the dashboard (hard refresh if needed) and the spiral card will appear. Inside the devcontainer ensure the guard script has already started Home Assistant, otherwise Lovelace cannot load `/local/poltava_poweroff/poweroff-timeline-card.js`.
+4. Reload the dashboard (hard refresh if needed) and the spiral card will appear. Inside the devcontainer ensure the guard script has already started Home Assistant, otherwise Lovelace cannot load `/local/poltava_poweroff/poweroff-timeline-card.js`.
 
 > The resource lives in `custom_components/poltava_poweroff/www`. If you run bare Core without Supervisor, add `/local/poltava_poweroff/poweroff-timeline-card.js` under **Settings → Dashboards → Resources** manually.
 
