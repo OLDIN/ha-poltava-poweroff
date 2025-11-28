@@ -84,11 +84,45 @@ This integration uses [semantic versioning](https://semver.org/) (MAJOR.MINOR.PA
 - A new version is released (version in `manifest.json` changes)
 - You have the integration installed via HACS
 
-To update:
+#### Method 1: Update via HACS (Recommended)
+
 1. Go to **HACS** → **Integrations**
 2. Find **Poltava PowerOff** in the list
-3. If an update is available, you'll see an **Update** button
-4. Click **Update** and restart Home Assistant
+3. If an update is available, you'll see an **Update** button (or a version badge showing available update)
+4. Click **Update** button
+5. Wait for the update to complete
+6. **Restart Home Assistant** (Settings → System → Restart)
+
+#### Method 2: Manual Update via File System
+
+If you installed the integration manually (not via HACS):
+
+1. **SSH into your Home Assistant OS** or use the **Terminal** add-on
+2. Navigate to the custom components directory:
+   ```bash
+   cd /config/custom_components/poltava_poweroff
+   ```
+3. Pull the latest changes:
+   ```bash
+   git pull origin main
+   ```
+   Or if you need to update to a specific version:
+   ```bash
+   git fetch --tags
+   git checkout v0.1.0  # Replace with the version you want
+   ```
+4. **Restart Home Assistant** (Settings → System → Restart)
+
+#### Method 3: Reinstall via HACS
+
+If the update doesn't appear or you have issues:
+
+1. Go to **HACS** → **Integrations**
+2. Find **Poltava PowerOff**
+3. Click the **...** (three dots) menu → **Redownload**
+4. **Restart Home Assistant**
+
+**Note:** After updating, check the integration version in **Settings → Devices & Services → Poltava PowerOff** → **...** → **System options** to verify the update was successful.
 
 ### For Developers
 
@@ -110,13 +144,32 @@ The script will:
 2. Show you the git commands to commit and tag the release
 
 **Release workflow:**
+
+**Minimum required (HACS will detect updates):**
+1. Make your changes
+2. Bump version: `python scripts/bump_version.py patch|minor|major`
+3. Commit and push: `git commit -am "Bump version to X.Y.Z" && git push origin main`
+
+**Recommended (with git tags for better tracking):**
 1. Make your changes
 2. Bump version: `python scripts/bump_version.py patch|minor|major`
 3. Commit changes: `git commit -am "Description of changes"`
 4. Tag release: `git tag -a v0.1.1 -m "Release 0.1.1"`
 5. Push: `git push origin main --tags`
 
-HACS will automatically detect the new version and notify users.
+**How HACS detects updates:**
+- HACS periodically checks the repository (every 4-6 hours) and reads `manifest.json`
+- It compares the version in the repo with the installed version
+- If the repo version is higher, it shows an update notification
+- Users can also manually trigger a check in HACS → Integrations → "Check for updates"
+
+**Note:**
+- **Git tags are NOT required** for HACS to detect updates. HACS reads `manifest.json` from the main branch.
+- Git tags and GitHub releases are **optional** but useful for:
+  - Better version tracking in git history
+  - GitHub releases with changelog/notes
+  - Ability to checkout specific versions
+  - Professional project organization
 
 <!-- References -->
 
