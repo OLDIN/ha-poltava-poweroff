@@ -4,9 +4,18 @@
         "dockerfile": "Dockerfile",
         "context": "."
     },
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+    },
+    "hostRequirements": {
+        "cpus": 4,
+        "memory": "8gb",
+        "storage": "20gb"
+    },
     "forwardPorts": [8123],
     "postCreateCommand": "scripts/setup",
-    "postStartCommand": "nohup bash scripts/develop > /tmp/ha.log 2>&1 &",
+    "postStartCommand": "bash -lc 'cd /workspaces/ha-poltava-poweroff && nohup scripts/devcontainer_ha_guard.sh >/tmp/ha-guard.log 2>&1 &'",
     "portsAttributes": {
         "8123": {
             "label": "Home Assistant",
@@ -35,6 +44,12 @@
                     "editor.defaultFormatter": "charliermarsh.ruff"
                 }
             }
+        },
+        "codespaces": {
+            "extensions": [
+                "github.copilot",
+                "ms-python.python"
+            ]
         }
     },
     "remoteUser": "vscode"

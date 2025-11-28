@@ -43,6 +43,16 @@ Integration also provides a calendar view of planned outages. You can add it to 
 
 ![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)
 
+## Dev Container workflow
+
+For local development we ship a ready-to-go [VS Code Dev Container](.devcontainer.json):
+
+1. Install the Dev Containers extension and run **Dev Containers: Reopen in Container**. The image is built from the repo `Dockerfile`, applying the `git` and `docker-outside-of-docker` features so you can commit and use Docker inside the workspace.
+2. The container expects at least 4 CPUs, 8 GB RAM and 20 GB of disk (see `hostRequirements`). Codespaces or local Docker Desktop should prompt you if the host is undersized.
+3. During `postCreateCommand` the helper script `scripts/setup` installs Python tooling and hooks. When the container starts, `scripts/devcontainer_ha_guard.sh` launches Home Assistant via `scripts/develop`, keeps it running, and tails output into `/tmp/ha.log`. The guard’s own status messages end up in `/tmp/ha-guard.log` (tail it when diagnosing autostart issues).
+4. Forwarded port 8123 is labeled “Home Assistant”. Once logs show `Home Assistant is up`, visit `http://localhost:8123/` (or the forwarded URL in Codespaces) to test the custom card/integration. Restarting the server is as easy as `docker restart <container>` or stopping the guard script.
+5. Use environment variables `HA_LOG`, `HA_HEALTHCHECK_URL`, `HA_HEALTHCHECK_ATTEMPTS`, or `HA_RESTART_DELAY` to tweak the guard behaviour when needed.
+
 <!-- References -->
 
 [energyua]: https://energy-ua.info/
