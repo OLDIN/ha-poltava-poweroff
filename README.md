@@ -74,6 +74,50 @@ For local development we ship a ready-to-go [VS Code Dev Container](.devcontaine
 4. Forwarded port 8123 is labeled “Home Assistant”. Once logs show `Home Assistant is up`, visit `http://localhost:8123/` (or the forwarded URL in Codespaces) to test the custom card/integration. Restarting the server is as easy as `docker restart <container>` or stopping the guard script.
 5. Use environment variables `HA_LOG`, `HA_HEALTHCHECK_URL`, `HA_HEALTHCHECK_ATTEMPTS`, or `HA_RESTART_DELAY` to tweak the guard behaviour when needed.
 
+## Versioning and Updates
+
+This integration uses [semantic versioning](https://semver.org/) (MAJOR.MINOR.PATCH). The version is stored in `custom_components/poltava_poweroff/manifest.json`.
+
+### For Users
+
+**HACS automatically detects updates** when:
+- A new version is released (version in `manifest.json` changes)
+- You have the integration installed via HACS
+
+To update:
+1. Go to **HACS** → **Integrations**
+2. Find **Poltava PowerOff** in the list
+3. If an update is available, you'll see an **Update** button
+4. Click **Update** and restart Home Assistant
+
+### For Developers
+
+To bump the version when making changes:
+
+```bash
+# Patch version (bug fixes): 0.1.0 -> 0.1.1
+python scripts/bump_version.py patch
+
+# Minor version (new features): 0.1.0 -> 0.2.0
+python scripts/bump_version.py minor
+
+# Major version (breaking changes): 0.1.0 -> 1.0.0
+python scripts/bump_version.py major
+```
+
+The script will:
+1. Update `manifest.json` with the new version
+2. Show you the git commands to commit and tag the release
+
+**Release workflow:**
+1. Make your changes
+2. Bump version: `python scripts/bump_version.py patch|minor|major`
+3. Commit changes: `git commit -am "Description of changes"`
+4. Tag release: `git tag -a v0.1.1 -m "Release 0.1.1"`
+5. Push: `git push origin main --tags`
+
+HACS will automatically detect the new version and notify users.
+
 <!-- References -->
 
 [energyua]: https://energy-ua.info/

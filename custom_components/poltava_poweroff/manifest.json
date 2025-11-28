@@ -1,11 +1,20 @@
 {
   "domain": "poltava_poweroff",
   "name": "Poltava Power Offline",
-  "codeowners": [ "@tsdaemon", "@OLDIN" ],
+  "codeowners": [
+    "@tsdaemon",
+    "@OLDIN"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/OLDIN/ha-poltava-poweroff",
   "iot_class": "cloud_polling",
-  "requirements": [ "beautifulsoup4>=4.12.0", "cloudscraper>=1.2.71", "brotli>=1.0.9" ],
-  "version": "0.0.1",
-  "after_dependencies": [ "frontend" ]
+  "requirements": [
+    "beautifulsoup4>=4.12.0",
+    "cloudscraper>=1.2.71",
+    "brotli>=1.0.9"
+  ],
+  "version": "0.1.0",
+  "after_dependencies": [
+    "frontend"
+  ]
 }
