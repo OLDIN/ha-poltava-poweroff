@@ -121,11 +121,11 @@ class PowerOffTimelineCard extends HTMLElement {
         ${this.renderSpiral(pattern, currentIndex, now, entity)}
         <div class="legend">
           <div class="legend-item">
-            <span class="legend-dot" style="background:#cc6f6f;"></span>
+            <span class="legend-dot" style="background:rgb(255 182 193);"></span>
             <span>Відключення</span>
           </div>
           <div class="legend-item">
-            <span class="legend-dot" style="background:#a4edc4;"></span>
+            <span class="legend-dot" style="background:rgb(144 238 144);"></span>
             <span>Світло є</span>
           </div>
         </div>
@@ -151,9 +151,9 @@ class PowerOffTimelineCard extends HTMLElement {
 
   renderSpiral(pattern, currentIndex, now, entity) {
     const SEGMENT_COLORS = {
-      0: 'rgb(204 111 111)',
-      1: 'rgb(164 237 196)',
-      2: '#ffee5f',
+      0: 'rgb(255 182 193)', // рожевий для відключення
+      1: 'rgb(144 238 144)', // світло-зелений для світла
+      2: '#ffee5f', // жовтий для переходів
     };
     const ARC_WIDTH = 45;
     const INITIAL_RADIUS = 35;
@@ -170,7 +170,7 @@ class PowerOffTimelineCard extends HTMLElement {
       const color = SEGMENT_COLORS[slot] || SEGMENT_COLORS[1];
       const isCurrent = i === currentIndex;
       const opacity = Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
-      const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || '#a4edc4'}" stroke-width="5"` : '';
+      const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || 'rgb(144 238 144)'}" stroke-width="5"` : '';
       return `<path d="${path}" class="spiral-segment" style="fill:${color};opacity:${opacity};" ${stroke}></path>`;
     }).join('');
 
