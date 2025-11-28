@@ -43,6 +43,23 @@ Integration also provides a calendar view of planned outages. You can add it to 
 
 ![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)
 
+### Lovelace “Snail” (Poweroff Timeline Card)
+
+Starting from the bundled `poweroff-timeline-card.js`, the Lovelace resource is registered automatically, so Home Assistant OS / Supervised requires no extra tweaks:
+
+1. Go to **Settings → Devices & Services**, add **Poltava PowerOff**, and select your queue.
+2. In your Lovelace dashboard choose **Edit → Add card → Custom: Power Off Timeline Card** (if the GUI does not list custom cards, click **Manual** and paste the snippet below):
+
+```yaml
+type: custom:poweroff-timeline-card
+entity: sensor.power_state  # replace with your sensor.<id>
+title: Outages Today
+```
+
+3. Reload the dashboard (hard refresh if needed) and the spiral card will appear. Inside the devcontainer ensure the guard script has already started Home Assistant, otherwise Lovelace cannot load `/local/poltava_poweroff/poweroff-timeline-card.js`.
+
+> The resource lives in `custom_components/poltava_poweroff/www`. If you run bare Core without Supervisor, add `/local/poltava_poweroff/poweroff-timeline-card.js` under **Settings → Dashboards → Resources** manually.
+
 ## Dev Container workflow
 
 For local development we ship a ready-to-go [VS Code Dev Container](.devcontainer.json):
