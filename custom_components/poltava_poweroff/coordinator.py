@@ -35,7 +35,9 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         self.config_entry = config_entry
         self.group: PowerOffGroup = config_entry.data[POWEROFF_GROUP_CONF]
         self.api = EnergyUaScrapper(self.group)
-        self.periods: list[PowerOffPeriod] = []
+        self.periods: list[PowerOffPeriod] = []  # Для сумісності з calendar - всі періоди
+        self.today_periods: list[PowerOffPeriod] = []
+        self.tomorrow_periods: list[PowerOffPeriod] = []
 
     async def _async_update_data(self) -> dict:
         """Fetch power off periods from scrapper."""
@@ -51,24 +53,56 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     async def _fetch_periods(self) -> None:
         LOGGER.debug("Calling api.get_power_off_periods() for group %s", self.group)
-        self.periods = await self.api.get_power_off_periods()
-        LOGGER.debug("Fetched %d periods: %s", len(self.periods), self.periods)
-
-    def _get_next_power_change_dt(self, on: bool) -> datetime | None:
-        """Get the next power on/off."""
-        now = dt_util.now()
-        events = self.get_events_between(
-            now,
-            now + TIMEFRAME_TO_CHECK,
+        today_periods, tomorrow_periods = await self.api.get_power_off_periods()
+        self.today_periods = today_periods
+        self.tomorrow_periods = tomorrow_periods
+        # Для calendar - об'єднуємо всі періоди
+        self.periods = today_periods + tomorrow_periods
+        LOGGER.debug(
+            "Fetched %d today periods, %d tomorrow periods", len(self.today_periods), len(self.tomorrow_periods)
         )
-        if on:
-            dts = sorted(event.end for event in events)
-        else:
-            dts = sorted(event.start for event in events)
-        LOGGER.debug("Next dts: %s", dts)
-        for dt in dts:
-            if dt > now:
-                return dt  # type: ignore
+
+    def _get_next_power_change_dt(self, on: bool, use_tomorrow_if_no_today: bool = True) -> datetime | None:
+        """Get the next power on/off.
+
+        Args:
+            on: True for power on, False for power off
+            use_tomorrow_if_no_today: If True and no today events found, check tomorrow
+        """
+        now = dt_util.now()
+        # Спочатку шукаємо в сьогоднішніх періодах
+        today_events = []
+        for period in self.today_periods:
+            start, end = period.to_datetime_period(now.tzinfo)
+            if start > now or end > now:
+                today_events.append(self._get_calendar_event(start, end))
+
+        if today_events:
+            if on:
+                dts = sorted(event.end for event in today_events)
+            else:
+                dts = sorted(event.start for event in today_events)
+            LOGGER.debug("Next dts from today: %s", dts)
+            for dt in dts:
+                if dt > now:
+                    return dt  # type: ignore
+
+        # Якщо сьогодні немає більше подій і дозволено, шукаємо в завтрашніх
+        if use_tomorrow_if_no_today and self.tomorrow_periods:
+            tomorrow_events = []
+            for period in self.tomorrow_periods:
+                start, end = period.to_datetime_period(now.tzinfo)
+                tomorrow_events.append(self._get_calendar_event(start, end))
+
+            if tomorrow_events:
+                if on:
+                    dts = sorted(event.end for event in tomorrow_events)
+                else:
+                    dts = sorted(event.start for event in tomorrow_events)
+                LOGGER.debug("Next dts from tomorrow: %s", dts)
+                if dts:
+                    return dts[0]  # type: ignore
+
         return None
 
     @property
@@ -94,7 +128,8 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     def get_event_at(self, at: datetime) -> CalendarEvent | None:
         """Get the current event."""
-        for period in self.periods:
+        # Спочатку перевіряємо сьогоднішні періоди
+        for period in self.today_periods:
             start, end = period.to_datetime_period(at.tzinfo)
             if start <= at <= end:
                 return self._get_calendar_event(start, end)

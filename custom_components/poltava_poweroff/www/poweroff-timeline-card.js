@@ -4,6 +4,7 @@ class PowerOffTimelineCard extends HTMLElement {
       throw new Error('Please define an entity');
     }
     this.config = config;
+    this.selectedTab = 'today'; // 'today' або 'tomorrow'
   }
 
   set hass(hass) {
@@ -11,7 +12,7 @@ class PowerOffTimelineCard extends HTMLElement {
 
     if (!this.card) {
       this.card = document.createElement('ha-card');
-      this.card.header = this.config.title || 'Відключення сьогодні';
+      this.card.header = this.config.title || 'Відключення';
       this.appendChild(this.card);
 
       this.content = document.createElement('div');
@@ -29,16 +30,70 @@ class PowerOffTimelineCard extends HTMLElement {
       return;
     }
 
-    const periods = entity.attributes.poweroff_periods || [];
+    const todayPeriods = entity.attributes.poweroff_periods_today || [];
+    const tomorrowPeriods = entity.attributes.poweroff_periods_tomorrow || [];
     const nextOff = entity.attributes.next_off;
     const nextOn = entity.attributes.next_on;
     const now = new Date();
 
+    // Автоматично вибираємо таб: якщо сьогодні немає більше періодів, показуємо завтра
+    if (this.selectedTab === 'today' && todayPeriods.length === 0 && tomorrowPeriods.length > 0) {
+      // Перевіряємо, чи є ще сьогоднішні події в майбутньому
+      const hasFutureToday = todayPeriods.some(period => {
+        const endHour = Number(period.end);
+        const endTime = new Date(now);
+        endTime.setHours(Math.floor(endHour), (endHour % 1) * 60, 0, 0);
+        return endTime > now;
+      });
+      if (!hasFutureToday) {
+        this.selectedTab = 'tomorrow';
+      }
+    }
+
+    // Визначаємо періоди та дату в залежності від вибраного таба
+    const periods = this.selectedTab === 'today' ? todayPeriods : tomorrowPeriods;
+    const displayDate = new Date(now);
+    if (this.selectedTab === 'tomorrow') {
+      displayDate.setDate(displayDate.getDate() + 1);
+    }
+
     const pattern = this.buildPattern(periods);
-    const currentIndex = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+    const currentIndex = this.selectedTab === 'today'
+      ? (now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
+      : -1; // Для завтра не показуємо поточний час
 
     this.content.innerHTML = `
       <style>
+        .tabs {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 16px;
+          justify-content: center;
+        }
+
+        .tab {
+          padding: 8px 16px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 600;
+          transition: all 0.3s ease;
+          background: var(--card-background-color, #1e1e1e);
+          color: var(--secondary-text-color, #b5b5b5);
+          border: 2px solid transparent;
+        }
+
+        .tab:hover {
+          background: var(--primary-color, #03a9f4);
+          color: white;
+        }
+
+        .tab.active {
+          background: var(--primary-color, #03a9f4);
+          color: white;
+          border-color: var(--primary-color, #03a9f4);
+        }
+
         .spiral-wrapper {
           display: flex;
           flex-direction: column;
@@ -117,8 +172,13 @@ class PowerOffTimelineCard extends HTMLElement {
         }
       </style>
 
+      <div class="tabs">
+        <div class="tab ${this.selectedTab === 'today' ? 'active' : ''}" data-tab="today">Сьогодні</div>
+        <div class="tab ${this.selectedTab === 'tomorrow' ? 'active' : ''}" data-tab="tomorrow">Завтра</div>
+      </div>
+
       <div class="spiral-wrapper">
-        ${this.renderSpiral(pattern, currentIndex, now, entity)}
+        ${this.renderSpiral(pattern, currentIndex, displayDate, entity, this.selectedTab)}
         <div class="legend">
           <div class="legend-item">
             <span class="legend-dot" style="background:rgb(255 182 193);"></span>
@@ -135,6 +195,17 @@ class PowerOffTimelineCard extends HTMLElement {
         </div>
       </div>
     `;
+
+    // Додаємо обробники подій для табів
+    this.content.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const tabName = e.target.getAttribute('data-tab');
+        if (tabName && tabName !== this.selectedTab) {
+          this.selectedTab = tabName;
+          this.updateTimeline();
+        }
+      });
+    });
   }
 
   buildPattern(periods) {
@@ -153,7 +224,7 @@ class PowerOffTimelineCard extends HTMLElement {
     return slots.join('');
   }
 
-  renderSpiral(pattern, currentIndex, now, entity) {
+  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab) {
     const SEGMENT_COLORS = {
       0: 'rgb(255 182 193)', // рожевий для відключення
       1: 'rgb(144 238 144)', // світло-зелений для світла
@@ -163,6 +234,7 @@ class PowerOffTimelineCard extends HTMLElement {
     const INITIAL_RADIUS = 35;
     const RADIUS_STEP = 2.3;
     const ANGLE_STEP = (Math.PI * 2) / 24;
+    const now = new Date();
 
     const segments = Array.from({length: 48}, (_, i) => {
       const startAngle = ANGLE_STEP * i;
@@ -172,8 +244,9 @@ class PowerOffTimelineCard extends HTMLElement {
       const path = this.createSpiralPath(startRadius, endRadius, ARC_WIDTH, startAngle, endAngle);
       const slot = parseInt(pattern[i], 10);
       const color = SEGMENT_COLORS[slot] || SEGMENT_COLORS[1];
-      const isCurrent = i === currentIndex;
-      const opacity = Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
+      const isCurrent = selectedTab === 'today' && i === currentIndex;
+      // Для завтрашнього дня всі сегменти повністю видимі
+      const opacity = selectedTab === 'tomorrow' ? 1 : (Math.floor(i / 2) < now.getHours() ? 0.65 : 1);
       const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || 'rgb(144 238 144)'}" stroke-width="5"` : '';
       return `<path d="${path}" class="spiral-segment" style="fill:${color};opacity:${opacity};" ${stroke}></path>`;
     }).join('');
@@ -189,7 +262,7 @@ class PowerOffTimelineCard extends HTMLElement {
 
     const centerCircle = '<circle r="120" fill="rgba(22,22,22,0.8)"></circle>';
     const queue = entity.attributes.queue || entity.attributes.group || '1.1';
-    const dateStr = now.toLocaleDateString('uk', {weekday: 'short', day: '2-digit', month: '2-digit'});
+    const dateStr = displayDate.toLocaleDateString('uk', {weekday: 'short', day: '2-digit', month: '2-digit'});
 
     const offCount = (pattern.match(/0/g) || []).length / 2;
     const onCount = (pattern.match(/1/g) || []).length / 2;

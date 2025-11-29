@@ -81,13 +81,35 @@ class PoltavaPowerOffSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return extra attributes."""
-        periods = []
-        for period in self.coordinator.periods:
-            if period.today:
-                periods.append({"start": period.start, "end": period.end})
+        today_periods = []
+        for period in self.coordinator.today_periods:
+            today_periods.append({"start": period.start, "end": period.end})
+
+        tomorrow_periods = []
+        for period in self.coordinator.tomorrow_periods:
+            tomorrow_periods.append({"start": period.start, "end": period.end})
+
+        # Для сумісності зі старою карткою - poweroff_periods містить сьогоднішні
+        # Але якщо сьогодні немає більше періодів, показуємо завтрашні
+        active_periods = today_periods
+        if not today_periods and tomorrow_periods:
+            # Перевіряємо, чи є ще сьогоднішні події в майбутньому
+            from homeassistant.util import dt as dt_util
+
+            now_dt = dt_util.now()
+            has_future_today = False
+            for period in self.coordinator.today_periods:
+                start, end = period.to_datetime_period(now_dt.tzinfo)
+                if end > now_dt:
+                    has_future_today = True
+                    break
+            if not has_future_today:
+                active_periods = tomorrow_periods
 
         return {
-            "poweroff_periods": periods,
+            "poweroff_periods": active_periods,  # Для сумісності
+            "poweroff_periods_today": today_periods,
+            "poweroff_periods_tomorrow": tomorrow_periods,
             "next_off": self.coordinator.get_next_off_time(),
             "next_on": self.coordinator.get_next_on_time(),
         }
