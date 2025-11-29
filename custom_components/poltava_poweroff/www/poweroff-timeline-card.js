@@ -215,9 +215,11 @@ class PowerOffTimelineCard extends HTMLElement {
         }
 
         .spiral-hour-label {
-          font-size: 22px;
-          font-weight: 700;
+          font-size: 24px;
+          font-weight: 900;
           fill: #0f3547;
+          text-anchor: middle;
+          dominant-baseline: middle;
         }
 
         .spiral-center-text {
@@ -347,7 +349,7 @@ class PowerOffTimelineCard extends HTMLElement {
       const radius = INITIAL_RADIUS + index * RADIUS_STEP + ARC_WIDTH * 1.2 + 10;
       const x = radius * Math.sin(angle);
       const y = radius * -Math.cos(angle);
-      return `<text class="spiral-hour-label" x="${x}" y="${y}" dy="0.35em">${hour}</text>`;
+      return `<text class="spiral-hour-label" x="${x}" y="${y}">${hour}</text>`;
     }).join('');
 
     const centerCircle = '<circle r="120" fill="rgba(22,22,22,0.8)"></circle>';
