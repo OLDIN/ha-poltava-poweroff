@@ -15,7 +15,7 @@
     },
     "forwardPorts": [8123],
     "postCreateCommand": "scripts/setup",
-    "postStartCommand": "bash -lc 'cd /workspaces/ha-poltava-poweroff && nohup scripts/devcontainer_ha_guard.sh >/tmp/ha-guard.log 2>&1 &'",
+    "postStartCommand": "cd /workspaces/ha-poltava-poweroff && nohup bash scripts/devcontainer_ha_guard.sh >/tmp/ha-guard.log 2>&1 &",
     "portsAttributes": {
         "8123": {
             "label": "Home Assistant",

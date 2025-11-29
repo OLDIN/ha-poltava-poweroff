@@ -39,6 +39,20 @@ Then you can add the integration to your dashboard and see the information about
 
 ![Sensors](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_sensor.png?raw=true)
 
+### Manual Data Refresh
+
+The integration automatically updates data every **5 minutes**. If you need to force an immediate update (e.g., when the schedule changes on the website), you can use the service:
+
+**Via Developer Tools:**
+1. Go to **Settings → Developer Tools → Services**
+2. Select `poltava_poweroff.refresh` from the service dropdown
+3. Click **Call Service**
+
+**Via YAML (automation/script):**
+```yaml
+service: poltava_poweroff.refresh
+```
+
 Integration also provides a calendar view of planned outages. You can add it to your dashboard as well via [Calendar card][calendar-card].
 
 ![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)

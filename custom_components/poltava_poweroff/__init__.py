@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 
+from .const import DOMAIN
 from .coordinator import PoltavaPowerOffCoordinator
 
 PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
+
+# Схема для service
+SERVICE_REFRESH = "refresh"
+SERVICE_SCHEMA: vol.Schema = vol.Schema({})  # Порожня схема, service не потребує параметрів
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -29,6 +36,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         "Custom card available at: /local/poltava_poweroff/poweroff-timeline-card.js\n"
         "Add it manually: Settings → Dashboards → Resources → Add Resource"
     )
+
+    # Реєструємо service для ручного оновлення
+    async def async_handle_refresh(call: ServiceCall) -> None:
+        """Handle refresh service call."""
+        _LOGGER.info("Manual refresh requested via service")
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            coordinator: PoltavaPowerOffCoordinator = entry.runtime_data
+            await coordinator.async_request_refresh()
+
+    hass.services.async_register(DOMAIN, SERVICE_REFRESH, async_handle_refresh, schema=SERVICE_SCHEMA)
 
     return True
 

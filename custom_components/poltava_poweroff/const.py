@@ -6,7 +6,7 @@ DOMAIN = "poltava_poweroff"
 
 POWEROFF_GROUP_CONF = "poweroff_group"
 
-UPDATE_INTERVAL = 600
+UPDATE_INTERVAL = 300  # 5 minutes - баланс між актуальністю даних та навантаженням на сайт
 
 STATE_ON = "Power ON"
 STATE_OFF = "Power OFF"

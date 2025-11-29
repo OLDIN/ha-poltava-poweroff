@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 import cloudscraper  # type: ignore[import-untyped]
@@ -10,6 +11,8 @@ from bs4 import BeautifulSoup, Tag
 
 from .const import PowerOffGroup
 from .entities import PowerOffPeriod
+
+LOGGER = logging.getLogger(__name__)
 
 URL = "https://energy-ua.info/cherga/{}"
 
@@ -34,7 +37,12 @@ class EnergyUaScrapper:
         """Validate connection to the website."""
         try:
             scraper = await self._get_scraper()
-            response = await asyncio.to_thread(scraper.get, URL.format(self.group))
+            headers = {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+            response = await asyncio.to_thread(scraper.get, URL.format(self.group), headers=headers)
             return response.status_code == 200
         except Exception:
             return False
@@ -59,64 +67,103 @@ class EnergyUaScrapper:
     async def get_power_off_periods(self) -> list[PowerOffPeriod]:
         """Get power off periods from the website."""
         scraper = await self._get_scraper()
-        response = await asyncio.to_thread(scraper.get, URL.format(self.group))
+        # Додаємо заголовки для запобігання кешування
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        response = await asyncio.to_thread(scraper.get, URL.format(self.group), headers=headers)
         content = response.text
         soup = BeautifulSoup(content, "html.parser")
         results = []
 
-        # Спочатку парсимо точні періоди з текстового опису (якщо є)
-        periods_text = self._parse_periods_from_text(soup, today=True)
-        if periods_text:
-            results.extend(periods_text)
-        else:
-            # Fallback до старого методу парсингу з scale_hours
-            scale_hours = soup.find_all("div", class_="scale_hours")
-            if len(scale_hours) > 0:
-                scale_hours_el = scale_hours[0].find_all("div", class_="scale_hours_el")
-                for item in scale_hours_el:
-                    if item.find("span", class_="hour_active"):
-                        start, end = self._parse_item(item)
-                        results.append(PowerOffPeriod(start, end, today=True))
+        # Спочатку шукаємо блоки scale_info_periods ТІЛЬКИ для сьогодні
+        all_scale_info_periods = soup.find_all("div", class_="scale_info_periods")
+        today_periods_found = False
 
+        for scale_info_block in all_scale_info_periods:
+            if not isinstance(scale_info_block, Tag):
+                continue
+
+            # Перевіряємо заголовок - парсимо ТІЛЬКИ блоки для сьогодні
+            title = scale_info_block.find("h4", class_="scale_info_title")
+            if not isinstance(title, Tag):
+                continue
+
+            title_text = title.get_text().strip().lower()
+            # Парсимо тільки блоки з заголовком "Періоди відключень на сьогодні"
+            if "сьогодні" in title_text or "сегодня" in title_text:
+                periods = self._parse_periods_from_text_block(scale_info_block, today=True)
+                if periods:
+                    results.extend(periods)
+                    today_periods_found = True
+            # Ігноруємо блоки для завтра в scale_info_periods - вони можуть бути неактуальні
+
+        # Якщо не знайшли періоди для сьогодні через scale_info_periods, використовуємо fallback
+        # Але тепер перевіряємо заголовок ch_day_title перед кожним блоком scale_hours
+        if not today_periods_found:
+            LOGGER.debug("Не знайдено періодів через scale_info_periods, використовуємо fallback з scale_hours")
+            # Знаходимо всі заголовки ch_day_title та відповідні блоки scale_hours
+            all_day_titles = soup.find_all("h4", class_="ch_day_title")
+            LOGGER.debug("Знайдено %d заголовків ch_day_title", len(all_day_titles))
+            for day_title in all_day_titles:
+                if not isinstance(day_title, Tag):
+                    continue
+                title_text = day_title.get_text().strip().lower()
+                LOGGER.debug("Перевіряємо заголовок: %s", title_text)
+                # Шукаємо наступний блок scale_hours після цього заголовка
+                scale_hours_block = None
+                for sibling in day_title.next_siblings:
+                    if isinstance(sibling, Tag) and "scale_hours" in sibling.get("class", []):
+                        scale_hours_block = sibling
+                        break
+
+                if scale_hours_block and "сьогодні" in title_text:
+                    LOGGER.debug("Знайдено блок scale_hours для сьогодні")
+                    # Це блок для сьогодні
+                    scale_hours_el = scale_hours_block.find_all("div", class_="scale_hours_el")
+                    for item in scale_hours_el:
+                        if item.find("span", class_="hour_active"):
+                            start, end = self._parse_item(item)
+                            period = PowerOffPeriod(start, end, today=True)
+                            results.append(period)
+                            LOGGER.debug("Додано сьогоднішній період: %s-%s", start, end)
+                    break  # Знайшли сьогоднішній блок, більше не шукаємо
+
+        # НЕ додаємо періоди на завтра - показуємо тільки сьогоднішні
+        # Періоди на завтра можуть бути неактуальними або змінитися
+        # Якщо потрібно показати завтрашні періоди, можна додати їх окремо для calendar
+
+        # Об'єднуємо періоди (тільки сьогоднішні)
         results = self.merge_periods(results)
 
-        # Парсимо періоди на завтра
-        tomorrow_periods = self._parse_periods_from_text(soup, today=False)
-        if tomorrow_periods:
-            results += self.merge_periods(tomorrow_periods)
-        else:
-            # Fallback до старого методу
-            scale_hours = soup.find_all("div", class_="scale_hours")
-            if len(scale_hours) > 1:
-                tomorrow_results = []
-                scale_hours_el_tomorrow = scale_hours[1].find_all("div", class_="scale_hours_el")
-                for item in scale_hours_el_tomorrow:
-                    if item.find("span", class_="hour_active"):
-                        start, end = self._parse_item(item)
-                        tomorrow_results.append(PowerOffPeriod(start, end, today=False))
-                results += self.merge_periods(tomorrow_results)
+        # Логуємо результат для діагностики
+        today_count = sum(1 for p in results if p.today)
+        tomorrow_count = sum(1 for p in results if not p.today)
+        LOGGER.debug("Парсинг завершено: %d сьогоднішніх, %d завтрашніх періодів", today_count, tomorrow_count)
+        for period in results:
+            LOGGER.debug("Період: %s-%s, today=%s", period.start, period.end, period.today)
 
         return results
 
-    def _parse_periods_from_text(self, soup: BeautifulSoup, today: bool) -> list[PowerOffPeriod]:
-        """Parse periods from text description (more accurate than HTML structure)."""
+    def _parse_periods_from_text_block(self, scale_info_block: Tag, today: bool) -> list[PowerOffPeriod]:
+        """Parse periods from a specific scale_info_periods block."""
         periods: list[PowerOffPeriod] = []
-        # Шукаємо блок з періодами відключень
-        scale_info_periods = soup.find("div", class_="scale_info_periods")
-        if not scale_info_periods or not isinstance(scale_info_periods, Tag):
-            return periods
 
-        periods_items = scale_info_periods.find("div", class_="periods_items")
+        periods_items = scale_info_block.find("div", class_="periods_items")
         if not periods_items or not isinstance(periods_items, Tag):
             return periods
 
         # Парсимо кожен період з тексту типу "З 12:00 до 14:30"
+        # BeautifulSoup.get_text() автоматично видаляє HTML теги, тому час буде просто "12:00"
         period_spans = periods_items.find_all("span")
         for span in period_spans:
             if not isinstance(span, Tag):
                 continue
             text = span.get_text()
             # Шукаємо патерн "З HH:MM до HH:MM"
+            # get_text() вже видалив <b> теги, тому шукаємо просто "З 12:00 до 14:30"
             match = re.search(r"З\s+(\d{1,2}:\d{2})\s+до\s+(\d{1,2}:\d{2})", text)
             if match:
                 start_str = match.group(1)
