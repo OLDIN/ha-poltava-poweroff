@@ -245,8 +245,11 @@ class PowerOffTimelineCard extends HTMLElement {
       const slot = parseInt(pattern[i], 10);
       const color = SEGMENT_COLORS[slot] || SEGMENT_COLORS[1];
       const isCurrent = selectedTab === 'today' && i === currentIndex;
-      // Для завтрашнього дня всі сегменти повністю видимі
-      const opacity = selectedTab === 'tomorrow' ? 1 : (Math.floor(i / 2) < now.getHours() ? 0.65 : 1);
+      // Для обох табів: минулі години мають opacity 0.65, майбутні - 1
+      // Для завтрашнього дня всі години в майбутньому, тому opacity = 1 для всіх
+      // Для сьогоднішнього: перевіряємо відносно поточного часу
+      // Використовуємо однакову логіку opacity для обох табів, щоб кольори виглядали однаково
+      const opacity = Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
       const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || 'rgb(144 238 144)'}" stroke-width="5"` : '';
       return `<path d="${path}" class="spiral-segment" style="fill:${color};opacity:${opacity};" ${stroke}></path>`;
     }).join('');
