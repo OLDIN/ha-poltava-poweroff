@@ -12,8 +12,76 @@ class PowerOffTimelineCard extends HTMLElement {
 
     if (!this.card) {
       this.card = document.createElement('ha-card');
-      this.card.header = this.config.title || 'Відключення';
       this.appendChild(this.card);
+
+      // Створюємо кастомний заголовок з перемикачами
+      this.headerContainer = document.createElement('div');
+      this.headerContainer.style.display = 'flex';
+      this.headerContainer.style.alignItems = 'center';
+      this.headerContainer.style.justifyContent = 'space-between';
+      this.headerContainer.style.padding = '16px 16px 0';
+      this.headerContainer.style.width = '100%';
+      this.headerContainer.style.boxSizing = 'border-box';
+      this.headerContainer.style.minWidth = '0';
+
+      // Створюємо текст заголовка (зліва)
+      this.headerText = document.createElement('span');
+      this.headerText.style.fontSize = '16px';
+      this.headerText.style.fontWeight = '500';
+      this.headerText.style.color = 'var(--primary-text-color)';
+      this.headerText.style.flexShrink = '1';
+      this.headerText.style.minWidth = '0';
+      this.headerText.style.overflow = 'hidden';
+      this.headerText.style.textOverflow = 'ellipsis';
+      this.headerText.style.whiteSpace = 'nowrap';
+      this.headerContainer.appendChild(this.headerText);
+
+      // Створюємо контейнер для перемикачів (справа)
+      this.daySwitcher = document.createElement('div');
+      this.daySwitcher.className = 'day-switcher';
+      this.daySwitcher.style.cssText = 'display: flex; align-items: center; gap: 4px; background: var(--card-background-color, #1e1e1e); border-radius: 12px; padding: 2px; flex-shrink: 0;';
+
+      // Створюємо кнопки перемикачів
+      this.todayButton = document.createElement('button');
+      this.todayButton.className = 'day-switcher-button';
+      this.todayButton.setAttribute('data-tab', 'today');
+      this.todayButton.setAttribute('title', 'Сьогодні');
+      this.todayButton.style.cssText = 'display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; color: var(--secondary-text-color, #b5b5b5); background: transparent; border: none; padding: 0; margin: 0;';
+      const todayIcon = document.createElement('ha-icon');
+      todayIcon.setAttribute('icon', 'mdi:calendar-today');
+      todayIcon.style.cssText = 'width: 24px; height: 24px; margin: 0; padding: 0; display: block;';
+      this.todayButton.appendChild(todayIcon);
+
+      this.tomorrowButton = document.createElement('button');
+      this.tomorrowButton.className = 'day-switcher-button';
+      this.tomorrowButton.setAttribute('data-tab', 'tomorrow');
+      this.tomorrowButton.setAttribute('title', 'Завтра');
+      this.tomorrowButton.style.cssText = 'display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; color: var(--secondary-text-color, #b5b5b5); background: transparent; border: none; padding: 0; margin: 0;';
+      const tomorrowIcon = document.createElement('ha-icon');
+      tomorrowIcon.setAttribute('icon', 'mdi:calendar-arrow-right');
+      tomorrowIcon.style.cssText = 'width: 24px; height: 24px; margin: 0; padding: 0; display: block;';
+      this.tomorrowButton.appendChild(tomorrowIcon);
+
+      this.daySwitcher.appendChild(this.todayButton);
+      this.daySwitcher.appendChild(this.tomorrowButton);
+      this.headerContainer.appendChild(this.daySwitcher);
+
+      // Додаємо обробники подій
+      this.todayButton.addEventListener('click', () => {
+        if (this.selectedTab !== 'today') {
+          this.selectedTab = 'today';
+          this.updateTimeline();
+        }
+      });
+
+      this.tomorrowButton.addEventListener('click', () => {
+        if (this.selectedTab !== 'tomorrow') {
+          this.selectedTab = 'tomorrow';
+          this.updateTimeline();
+        }
+      });
+
+      this.card.appendChild(this.headerContainer);
 
       this.content = document.createElement('div');
       this.content.style.padding = '16px';
@@ -62,36 +130,71 @@ class PowerOffTimelineCard extends HTMLElement {
       ? (now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
       : -1; // Для завтра не показуємо поточний час
 
+    // Оновлюємо тільки текст заголовка та класи активності (без перестворення HTML)
+    const titleText = this.selectedTab === 'today' ? 'Відключення сьогодні' : 'Відключення завтра';
+    this.headerText.textContent = titleText;
+
+    // Оновлюємо класи активності для кнопок
+    if (this.selectedTab === 'today') {
+      this.todayButton.classList.add('active');
+      this.tomorrowButton.classList.remove('active');
+      this.todayButton.style.background = 'var(--primary-color, #03a9f4)';
+      this.todayButton.style.color = 'white';
+      this.tomorrowButton.style.background = 'transparent';
+      this.tomorrowButton.style.color = 'var(--secondary-text-color, #b5b5b5)';
+    } else {
+      this.todayButton.classList.remove('active');
+      this.tomorrowButton.classList.add('active');
+      this.todayButton.style.background = 'transparent';
+      this.todayButton.style.color = 'var(--secondary-text-color, #b5b5b5)';
+      this.tomorrowButton.style.background = 'var(--primary-color, #03a9f4)';
+      this.tomorrowButton.style.color = 'white';
+    }
+
     this.content.innerHTML = `
       <style>
-        .tabs {
+        .day-switcher {
           display: flex;
-          gap: 8px;
-          margin-bottom: 16px;
-          justify-content: center;
-        }
-
-        .tab {
-          padding: 8px 16px;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 600;
-          transition: all 0.3s ease;
+          align-items: center;
+          gap: 4px;
           background: var(--card-background-color, #1e1e1e);
+          border-radius: 12px;
+          padding: 2px;
+        }
+
+        .day-switcher-button {
+          display: grid;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          cursor: pointer;
+          transition: all 0.2s ease;
           color: var(--secondary-text-color, #b5b5b5);
-          border: 2px solid transparent;
+          background: transparent;
+          border: none;
+          padding: 0;
+          margin: 0;
         }
 
-        .tab:hover {
-          background: var(--primary-color, #03a9f4);
-          color: white;
+        .day-switcher-button ha-icon {
+          width: 20px;
+          height: 20px;
+          margin: 0;
+          padding: 0;
+          display: block;
         }
 
-        .tab.active {
-          background: var(--primary-color, #03a9f4);
-          color: white;
-          border-color: var(--primary-color, #03a9f4);
+        .day-switcher-button ha-icon svg {
+          display: block;
+          width: 100%;
+          height: 100%;
+          margin: 0;
+        }
+
+        .day-switcher-button:hover:not(.active) {
+          background: var(--divider-color, rgba(255, 255, 255, 0.1));
+          color: var(--primary-text-color);
         }
 
         .spiral-wrapper {
@@ -172,11 +275,6 @@ class PowerOffTimelineCard extends HTMLElement {
         }
       </style>
 
-      <div class="tabs">
-        <div class="tab ${this.selectedTab === 'today' ? 'active' : ''}" data-tab="today">Сьогодні</div>
-        <div class="tab ${this.selectedTab === 'tomorrow' ? 'active' : ''}" data-tab="tomorrow">Завтра</div>
-      </div>
-
       <div class="spiral-wrapper">
         ${this.renderSpiral(pattern, currentIndex, displayDate, entity, this.selectedTab)}
         <div class="legend">
@@ -195,17 +293,6 @@ class PowerOffTimelineCard extends HTMLElement {
         </div>
       </div>
     `;
-
-    // Додаємо обробники подій для табів
-    this.content.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        const tabName = e.target.getAttribute('data-tab');
-        if (tabName && tabName !== this.selectedTab) {
-          this.selectedTab = tabName;
-          this.updateTimeline();
-        }
-      });
-    });
   }
 
   buildPattern(periods) {
