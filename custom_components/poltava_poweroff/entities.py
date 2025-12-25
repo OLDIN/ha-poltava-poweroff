@@ -27,4 +27,8 @@ class PowerOffPeriod:
         start = base_date + timedelta(hours=self.start)
         end = base_date + timedelta(hours=self.end)
 
+        # Якщо end менший за start, це означає що період йде через північ
+        if end <= start:
+            end = end + timedelta(days=1)
+
         return start, end
