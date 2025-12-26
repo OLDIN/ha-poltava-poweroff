@@ -1,6 +1,6 @@
 [![SWUbanner](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct-single.svg)](https://stand-with-ukraine.pp.ua/)
 
-![HA Poltava PowerOff Logo](https://github.com/tsdaemon/ha-lviv-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/icons/icon.png?raw=true)
+![HA Poltava PowerOff Logo](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/custom_components/poltava_poweroff/icon.png)
 
 # ⚡️ Home Assistant Poltava PowerOff
 

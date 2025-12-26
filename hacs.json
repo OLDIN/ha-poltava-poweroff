@@ -1,5 +1,5 @@
 {
-  "name": "Poltava PowerOff",
-  "homeassistant": "2024.7.0",
-  "render_readme": true
+  "name": "Poltava Power Offline",
+  "render_readme": true,
+  "homeassistant": "2024.1.0"
 }
