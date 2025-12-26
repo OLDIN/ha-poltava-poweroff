@@ -234,13 +234,13 @@ def main() -> None:
             print("\n✅ GitHub CLI (gh) is installed - GitHub Releases available")
         else:
             print("\n⚠️  GitHub CLI (gh) not installed")
-            print(
-                "   Install: curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg"
-            )
-            print(
-                '   Then: echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null'
-            )
-            print("   Finally: sudo apt update && sudo apt install gh")
+            print("\n   📦 Installation instructions:")
+            print("   • Linux (Debian/Ubuntu): sudo apt install gh")
+            print("   • Linux (Fedora/RHEL):   sudo dnf install gh")
+            print("   • macOS:                 brew install gh")
+            print("   • Windows:               winget install GitHub.cli")
+            print("\n   🔗 More info: https://cli.github.com/manual/installation")
+            print("   🔐 After install, authenticate: gh auth login")
         sys.exit(1)
 
     part = args[0].lower()
