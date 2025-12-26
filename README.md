@@ -88,6 +88,34 @@ For local development we ship a ready-to-go [VS Code Dev Container](.devcontaine
 4. Forwarded port 8123 is labeled “Home Assistant”. Once logs show `Home Assistant is up`, visit `http://localhost:8123/` (or the forwarded URL in Codespaces) to test the custom card/integration. Restarting the server is as easy as `docker restart <container>` or stopping the guard script.
 5. Use environment variables `HA_LOG`, `HA_HEALTHCHECK_URL`, `HA_HEALTHCHECK_ATTEMPTS`, or `HA_RESTART_DELAY` to tweak the guard behaviour when needed.
 
+## Development
+
+### Version Management
+
+For developers, use the automated version bump script for easy releases:
+
+```bash
+# Quick automated release (recommended for maintainers)
+python scripts/bump_version.py patch --push --notes
+
+# Semi-automated (commit & tag, manual push)
+python scripts/bump_version.py patch --commit
+
+# Manual workflow (traditional)
+python scripts/bump_version.py patch
+git add custom_components/poltava_poweroff/manifest.json
+git commit -m "Bump version to X.Y.Z"
+git tag -a vX.Y.Z -m "Release X.Y.Z"
+git push origin main --tags
+```
+
+**Options:**
+- `-c, --commit`: Automatically commit changes and create git tag
+- `-p, --push`: Push commits and tags to GitHub (implies `--commit`)
+- `-n, --notes`: Generate release notes from commit messages
+
+See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for detailed documentation.
+
 ## Versioning and Updates
 
 This integration uses [semantic versioning](https://semver.org/) (MAJOR.MINOR.PATCH). The version is stored in `custom_components/poltava_poweroff/manifest.json`.
