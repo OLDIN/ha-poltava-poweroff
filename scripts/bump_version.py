@@ -32,9 +32,28 @@ def create_github_release(version: str, notes_file: Path) -> bool:
     title = f"v{version}"
 
     try:
-        # Create release with notes
+        # Get the repository name from origin remote
+        result = run_command(["git", "remote", "get-url", "origin"], check=False)
+        if result.returncode != 0:
+            print("⚠️  Cannot determine repository from git remote")
+            return False
+
+        # Extract repo name from URL (works with both HTTPS and SSH)
+        origin_url = result.stdout.strip()
+        # Remove .git suffix if present
+        if origin_url.endswith(".git"):
+            origin_url = origin_url[:-4]
+        # Extract owner/repo from URL
+        if "github.com" in origin_url:
+            repo = origin_url.split("github.com")[-1].strip(":/")
+        else:
+            print("⚠️  Not a GitHub repository")
+            return False
+
+        # Create release with notes, specifying the repo explicitly
         result = run_command(
-            ["gh", "release", "create", tag, "--title", title, "--notes-file", str(notes_file)], check=False
+            ["gh", "release", "create", tag, "--repo", repo, "--title", title, "--notes-file", str(notes_file)],
+            check=False,
         )
 
         if result.returncode == 0:
