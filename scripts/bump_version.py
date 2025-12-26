@@ -3,6 +3,7 @@
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -15,6 +16,36 @@ REPO_ROOT = Path(__file__).parent.parent
 def run_command(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     """Run shell command and return result."""
     return subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=check)
+
+
+def is_gh_installed() -> bool:
+    """Check if GitHub CLI is installed (cross-platform)."""
+    return shutil.which("gh") is not None
+
+
+def create_github_release(version: str, notes_file: Path) -> bool:
+    """Create GitHub release using gh CLI."""
+    if not is_gh_installed():
+        return False
+
+    tag = f"v{version}"
+    title = f"v{version}"
+
+    try:
+        # Create release with notes
+        result = run_command(
+            ["gh", "release", "create", tag, "--title", title, "--notes-file", str(notes_file)], check=False
+        )
+
+        if result.returncode == 0:
+            print(f"✅ Created GitHub Release: {tag}")
+            return True
+        else:
+            print(f"⚠️  Failed to create GitHub Release: {result.stderr.strip()}")
+            return False
+    except Exception as e:
+        print(f"⚠️  Error creating GitHub Release: {e}")
+        return False
 
 
 def get_current_version() -> str:
@@ -143,7 +174,7 @@ def create_release_notes(version: str, changelog: str) -> Path:
     return notes_file
 
 
-def git_commit_and_tag(version: str, notes_file: Path | None = None, auto_push: bool = False) -> None:
+def git_commit_and_tag(version: str, notes_file: Path | None = None, auto_push: bool = False) -> str:
     """Commit changes and create git tag."""
     # Add manifest.json
     run_command(["git", "add", str(MANIFEST_PATH)])
@@ -171,12 +202,15 @@ def git_commit_and_tag(version: str, notes_file: Path | None = None, auto_push: 
         run_command(["git", "push", "origin", "--tags"])
         print("✅ Pushed tags to origin")
 
+    return tag
+
 
 def main() -> None:
     """Main function."""
     auto_commit = "--commit" in sys.argv or "-c" in sys.argv
     auto_push = "--push" in sys.argv or "-p" in sys.argv
     generate_notes = "--notes" in sys.argv or "-n" in sys.argv
+    create_release = "--release" in sys.argv or "-r" in sys.argv
 
     # Remove flags from argv
     args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
@@ -189,11 +223,24 @@ def main() -> None:
         print("  -c, --commit    Automatically commit and tag")
         print("  -p, --push      Push commits and tags to GitHub (implies --commit)")
         print("  -n, --notes     Generate release notes from commits")
+        print("  -r, --release   Create GitHub Release (requires gh CLI + --push --notes)")
         print("\n💡 Examples:")
-        print("  python scripts/bump_version.py patch           # 0.1.0 -> 0.1.1 (manual)")
-        print("  python scripts/bump_version.py patch -c        # Update, commit & tag")
-        print("  python scripts/bump_version.py minor -c -n     # Update, commit, tag & generate notes")
-        print("  python scripts/bump_version.py patch -p -n     # Full release (commit, tag, push, notes)")
+        print("  python scripts/bump_version.py patch              # 0.1.0 -> 0.1.1 (manual)")
+        print("  python scripts/bump_version.py patch -c           # Update, commit & tag")
+        print("  python scripts/bump_version.py minor -c -n        # Update, commit, tag & generate notes")
+        print("  python scripts/bump_version.py patch -p -n -r     # FULL AUTO: commit, push, GitHub Release!")
+
+        if is_gh_installed():
+            print("\n✅ GitHub CLI (gh) is installed - GitHub Releases available")
+        else:
+            print("\n⚠️  GitHub CLI (gh) not installed")
+            print(
+                "   Install: curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg"
+            )
+            print(
+                '   Then: echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null'
+            )
+            print("   Finally: sudo apt update && sudo apt install gh")
         sys.exit(1)
 
     part = args[0].lower()
@@ -214,7 +261,7 @@ def main() -> None:
 
     # Generate release notes if requested
     notes_file = None
-    if generate_notes or auto_push:
+    if generate_notes or auto_push or create_release:
         commits = get_commits_since_tag(latest_tag)
         changelog = generate_changelog(commits, new_version)
         notes_file = create_release_notes(new_version, changelog)
@@ -231,25 +278,43 @@ def main() -> None:
         try:
             git_commit_and_tag(new_version, notes_file=notes_file, auto_push=auto_push)
             print()
-            print("✅ Release prepared successfully!")
 
-            if not auto_push:
-                print("\n💡 Next steps:")
-                print("   1. Review changes: git log -1 --stat")
-                print("   2. Push: git push origin main --tags")
-                print(
-                    f"   3. Create GitHub release: https://github.com/OLDIN/ha-poltava-poweroff/releases/new?tag=v{new_version}"
-                )
+            # Create GitHub Release if requested
+            if create_release and auto_push:
+                if notes_file and notes_file.exists():
+                    print("📦 Creating GitHub Release...")
+                    if create_github_release(new_version, notes_file):
+                        print()
+                        print("🎉 ✅ RELEASE COMPLETE!")
+                        print(f"🔗 View: https://github.com/OLDIN/ha-poltava-poweroff/releases/tag/v{new_version}")
+                    else:
+                        print("⚠️  GitHub Release not created (create manually)")
+                        print(f"   https://github.com/OLDIN/ha-poltava-poweroff/releases/new?tag=v{new_version}")
+                else:
+                    print("⚠️  Cannot create GitHub Release: release notes missing")
+                    print("   Use: python scripts/bump_version.py patch -p -n -r")
+            elif create_release and not auto_push:
+                print("⚠️  --release requires --push and --notes")
+                print("   Use: python scripts/bump_version.py patch -p -n -r")
+            else:
+                print("✅ Release prepared successfully!")
+                if not auto_push:
+                    print("\n💡 Next: git push origin main --tags")
+                elif not create_release and is_gh_installed():
+                    print("\n💡 To auto-create GitHub Release:")
+                    print("   python scripts/bump_version.py patch -p -n -r")
+                elif not is_gh_installed():
+                    print("\n💡 Create release manually:")
+                    print(f"   https://github.com/OLDIN/ha-poltava-poweroff/releases/new?tag=v{new_version}")
         except subprocess.CalledProcessError as e:
-            print(f"\n❌ Error during git operations: {e}")
+            print(f"\n❌ Git error: {e}")
             print(f"   stdout: {e.stdout}")
             print(f"   stderr: {e.stderr}")
             sys.exit(1)
     else:
         print("\n💡 Next steps:")
-        print(f"   1. Review changes: git diff {MANIFEST_PATH.relative_to(REPO_ROOT)}")
-        print(f"   2. Commit & tag: python scripts/bump_version.py {part} --commit")
-        print(f"   3. Or full release: python scripts/bump_version.py {part} --push --notes")
+        print(f"   1. Review: git diff {MANIFEST_PATH.relative_to(REPO_ROOT)}")
+        print(f"   2. Quick: python scripts/bump_version.py {part} -p -n -r")
 
 
 if __name__ == "__main__":
