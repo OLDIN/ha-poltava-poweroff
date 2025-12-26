@@ -143,10 +143,14 @@ def create_release_notes(version: str, changelog: str) -> Path:
     return notes_file
 
 
-def git_commit_and_tag(version: str, auto_push: bool = False) -> None:
+def git_commit_and_tag(version: str, notes_file: Path | None = None, auto_push: bool = False) -> None:
     """Commit changes and create git tag."""
     # Add manifest.json
     run_command(["git", "add", str(MANIFEST_PATH)])
+
+    # Add release notes if they exist
+    if notes_file and notes_file.exists():
+        run_command(["git", "add", str(notes_file)])
 
     # Commit
     commit_msg = f"Bump version to {version}"
@@ -209,10 +213,11 @@ def main() -> None:
     update_manifest(new_version)
 
     # Generate release notes if requested
+    notes_file = None
     if generate_notes or auto_push:
         commits = get_commits_since_tag(latest_tag)
         changelog = generate_changelog(commits, new_version)
-        create_release_notes(new_version, changelog)
+        notes_file = create_release_notes(new_version, changelog)
         print()
         print("📝 Release notes preview:")
         print("─" * 60)
@@ -224,7 +229,7 @@ def main() -> None:
     if auto_commit or auto_push:
         print("🔨 Git operations:")
         try:
-            git_commit_and_tag(new_version, auto_push=auto_push)
+            git_commit_and_tag(new_version, notes_file=notes_file, auto_push=auto_push)
             print()
             print("✅ Release prepared successfully!")
 
