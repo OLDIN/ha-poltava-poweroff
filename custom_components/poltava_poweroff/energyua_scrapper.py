@@ -83,9 +83,10 @@ class EnergyUaScrapper:
         today_results: list[PowerOffPeriod] = []
         tomorrow_results: list[PowerOffPeriod] = []
 
-        # Спочатку шукаємо блоки scale_info_periods для сьогодні
+        # Спочатку шукаємо блоки scale_info_periods для сьогодні та завтра
         all_scale_info_periods = soup.find_all("div", class_="scale_info_periods")
         today_periods_found = False
+        tomorrow_periods_found = False
 
         for scale_info_block in all_scale_info_periods:
             if not isinstance(scale_info_block, Tag):
@@ -108,10 +109,18 @@ class EnergyUaScrapper:
                 periods = self._parse_periods_from_text_block(scale_info_block, today=False)
                 if periods:
                     tomorrow_results.extend(periods)
+                    tomorrow_periods_found = True
 
-        # Якщо не знайшли періоди для сьогодні через scale_info_periods, використовуємо fallback
-        if not today_periods_found:
-            LOGGER.debug("Не знайдено періодів через scale_info_periods, використовуємо fallback з scale_hours")
+        # Якщо не знайшли періоди через scale_info_periods, використовуємо fallback
+        if not today_periods_found or not tomorrow_periods_found:
+            if not today_periods_found:
+                LOGGER.debug(
+                    "Не знайдено періодів для сьогодні через scale_info_periods, використовуємо fallback з scale_hours"
+                )
+            if not tomorrow_periods_found:
+                LOGGER.debug(
+                    "Не знайдено періодів для завтра через scale_info_periods, використовуємо fallback з scale_hours"
+                )
             # Знаходимо всі заголовки ch_day_title та відповідні блоки scale_hours
             all_day_titles = soup.find_all("h4", class_="ch_day_title")
             LOGGER.debug("Знайдено %d заголовків ch_day_title", len(all_day_titles))
@@ -128,7 +137,7 @@ class EnergyUaScrapper:
                         break
 
                 if scale_hours_block:
-                    if "сьогодні" in title_text:
+                    if "сьогодні" in title_text and not today_periods_found:
                         LOGGER.debug("Знайдено блок scale_hours для сьогодні")
                         scale_hours_el = scale_hours_block.find_all("div", class_="scale_hours_el")
                         for item in scale_hours_el:
@@ -137,7 +146,7 @@ class EnergyUaScrapper:
                                 period = PowerOffPeriod(start, end, today=True)
                                 today_results.append(period)
                                 LOGGER.debug("Додано сьогоднішній період: %s-%s", start, end)
-                    elif "завтра" in title_text:
+                    elif "завтра" in title_text and not tomorrow_periods_found:
                         LOGGER.debug("Знайдено блок scale_hours для завтра")
                         scale_hours_el = scale_hours_block.find_all("div", class_="scale_hours_el")
                         for item in scale_hours_el:

@@ -131,7 +131,9 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         # Спочатку перевіряємо сьогоднішні періоди
         for period in self.today_periods:
             start, end = period.to_datetime_period(at.tzinfo)
-            if start <= at <= end:
+            # Використовуємо start <= at < end, щоб коли at == end, подія вже не активна
+            # Це важливо для періодів, що закінчуються в 12:00 (опівночі або опівдня)
+            if start <= at < end:
                 return self._get_calendar_event(start, end)
         return None
 

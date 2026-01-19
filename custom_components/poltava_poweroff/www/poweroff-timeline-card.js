@@ -303,9 +303,25 @@ class PowerOffTimelineCard extends HTMLElement {
       // Використовуємо Math.floor для початку та Math.ceil для кінця,
       // щоб правильно покрити періоди з хвилинами (наприклад, 14:30)
       const startHour = Number(period.start);
-      const endHour = Number(period.end);
+      let endHour = Number(period.end);
+
+      // Якщо endHour дорівнює 0 (опівночі), це означає кінець доби (24:00)
+      // Але якщо endHour == 12.0, це означає 12:00 (опівдень), а не опівночі
+      // Тому перевіряємо: якщо endHour == 0, то це опівночі (24:00)
+      // Якщо endHour >= 24, нормалізуємо до 24
+      if (endHour === 0) {
+        endHour = 24; // Опівночі = 24:00
+      } else if (endHour >= 24) {
+        endHour = 24; // Нормалізуємо до 24 годин
+      }
+
       const start = Math.max(0, Math.min(48, Math.floor(startHour * 2)));
+      // Для endHour == 24, Math.ceil(24 * 2) = 48, що правильно покриває всю добу
+      // Для endHour == 12.0, Math.ceil(12.0 * 2) = 24, що правильно покриває до 12:00
       const end = Math.max(start, Math.min(48, Math.ceil(endHour * 2)));
+
+      // Якщо end == 48, це означає кінець доби, тому покриваємо всі слоти до кінця
+      // Якщо end < 48, покриваємо слоти від start до end (не включно)
       for (let i = start; i < end; i += 1) {
         slots[i] = '0';
       }

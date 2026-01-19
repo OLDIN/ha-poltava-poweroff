@@ -90,6 +90,42 @@ For local development we ship a ready-to-go [VS Code Dev Container](.devcontaine
 
 ## Development
 
+### Running Tests
+
+To run tests, first install the dependencies:
+
+```bash
+# Install all dependencies (including Home Assistant)
+pip install -r requirements.txt
+
+# Or only test dependencies (if Home Assistant is already installed)
+pip install pytest pytest-asyncio aioresponses beautifulsoup4 cloudscraper voluptuous
+```
+
+After that, you can run the tests:
+
+```bash
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run a specific test file
+pytest tests/test_energyua_scrapper.py
+
+# Run a specific test case
+pytest tests/test_energyua_scrapper.py::test_energyua_scrapper -v
+
+# Run with code coverage (if pytest-cov is installed)
+pytest --cov=custom_components/poltava_poweroff --cov-report=html
+```
+
+**Notes:**
+- The pytest configuration is in `pytest.ini` and automatically adds `custom_components` to PYTHONPATH for correct imports
+- Tests require Home Assistant for correct module imports
+- If you use anaconda/miniconda, make sure to install dependencies in the correct environment
+
 ### Version Management
 
 For developers, use the automated version bump script for easy releases:
