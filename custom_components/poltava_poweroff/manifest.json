@@ -13,7 +13,7 @@
     "cloudscraper>=1.2.71",
     "brotli>=1.0.9"
   ],
-  "version": "0.2.12",
+  "version": "0.2.13",
   "after_dependencies": [
     "frontend"
   ]
