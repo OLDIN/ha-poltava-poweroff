@@ -166,6 +166,27 @@ pytest --cov=custom_components/poltava_poweroff --cov-report=html
 - Tests require Home Assistant for correct module imports
 - If you use anaconda/miniconda, make sure to install dependencies in the correct environment
 
+### Local Home Assistant with a mock energy-ua (UI + screenshots)
+
+Same approach as in `ha-silpo`: a real Home Assistant process with the integration symlinked in, talking to a local mock of energy-ua.info that you can "break" on demand.
+
+```bash
+scripts/setup_dev_env.sh          # once: creates .venv-ha (HA + test deps + Playwright Chromium)
+scripts/dev_ha_ui.sh up           # HA on http://127.0.0.1:8124/poweroff/0  (admin / poweroff1234)
+scripts/dev_ha_ui.sh mode http500 # site down → card shows cached schedule + banner
+scripts/dev_ha_ui.sh mode garbage # Cloudflare / maintenance page
+scripts/dev_ha_ui.sh mode nodata  # "Немає даних" — known days are kept
+scripts/dev_ha_ui.sh mode ok
+scripts/dev_ha_ui.sh restart      # restart HA only — schedule must come back from cache
+scripts/dev_ha_ui.sh shot site_down   # screenshots/site_down.png (full dashboard)
+scripts/dev_ha_ui.sh down
+```
+
+The mock (`scripts/mock_energyua.py`) renders pages in the site's HTML format. Change the schedule with
+`curl -X POST 127.0.0.1:8798/_test/schedule -d '{"today": [[8, 9.5]], "tomorrow": null}'`.
+The integration reads its base URL from `POLTAVA_POWEROFF_BASE_URL` (defaults to `https://energy-ua.info`).
+Runtime files (`ha_config/`, `.venv-ha/`, `screenshots/`) are git-ignored.
+
 ### Running JavaScript Tests
 
 The project includes tests for the Lovelace card UI component. To run JavaScript tests:
