@@ -203,7 +203,8 @@ describe('PowerOffTimelineCard', () => {
 
     it('should render header with title', () => {
       expect(card.headerText).toBeDefined();
-      expect(card.headerText.textContent).toContain('Відключення');
+      expect(card.headerText.textContent).toBe('Сьогодні');
+      expect(card.headerText.title).toBe('Відключення сьогодні');
     });
 
     it('should render day switcher buttons', () => {
@@ -336,10 +337,10 @@ describe('PowerOffTimelineCard', () => {
     });
 
     it('should update header text when switching tabs', () => {
-      expect(card.headerText.textContent).toContain('сьогодні');
+      expect(card.headerText.textContent).toBe('Сьогодні');
       
       card.tomorrowButton.click();
-      expect(card.headerText.textContent).toContain('завтра');
+      expect(card.headerText.textContent).toBe('Завтра');
     });
 
     it('should update spiral chart when switching tabs', () => {
@@ -613,7 +614,7 @@ describe('PowerOffTimelineCard', () => {
       card.selectedTab = 'tomorrow';
       card._userPickedTab = true; // інакше авто-вибір таба поверне «сьогодні» (є майбутні відключення)
       card.updateTimeline();
-      expect(card.headerText.textContent).toContain('завтра');
+      expect(card.headerText.textContent).toBe('Завтра');
       
       const htmlContent = createHtmlForScreenshot(card);
       const screenshot = await render.screenshot(htmlContent);

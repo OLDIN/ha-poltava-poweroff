@@ -168,7 +168,7 @@ const CARD_STYLES = `
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
   .next-line { font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
-  .next-line b { font-weight: 600; color: var(--primary-text-color); }
+  .next-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
 
   .info-banner, .stale-banner {
     display: flex;
@@ -496,7 +496,10 @@ class PowerOffTimelineCard extends HTMLElement {
       ? (now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
       : -1;
 
-    this.headerText.textContent = this.selectedTab === 'today' ? 'Відключення сьогодні' : 'Відключення завтра';
+    // Короткий заголовок: на вузькій картці поруч ще чип черги й перемикач днів
+    const isTodayTab = this.selectedTab === 'today';
+    this.headerText.textContent = isTodayTab ? 'Сьогодні' : 'Завтра';
+    this.headerText.title = isTodayTab ? 'Відключення сьогодні' : 'Відключення завтра';
     this.todayButton.classList.toggle('active', this.selectedTab === 'today');
     this.tomorrowButton.classList.toggle('active', this.selectedTab === 'tomorrow');
 
