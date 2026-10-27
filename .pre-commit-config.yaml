@@ -27,3 +27,10 @@ repos:
     types: [python]
     pass_filenames: false
     always_run: true
+  - id: vitest
+    name: vitest
+    entry: npm test
+    language: system
+    types: [javascript]
+    pass_filenames: false
+    always_run: true

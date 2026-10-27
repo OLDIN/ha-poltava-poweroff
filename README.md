@@ -53,10 +53,6 @@ The integration automatically updates data every **5 minutes**. If you need to f
 service: poltava_poweroff.refresh
 ```
 
-Integration also provides a calendar view of planned outages. You can add it to your dashboard as well via [Calendar card][calendar-card].
-
-![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)
-
 ### Lovelace “Snail” (Poweroff Timeline Card)
 
 Starting from the bundled `poweroff-timeline-card.js`, the Lovelace resource is registered automatically, so Home Assistant OS / Supervised requires no extra tweaks:
@@ -125,6 +121,42 @@ pytest --cov=custom_components/poltava_poweroff --cov-report=html
 - The pytest configuration is in `pytest.ini` and automatically adds `custom_components` to PYTHONPATH for correct imports
 - Tests require Home Assistant for correct module imports
 - If you use anaconda/miniconda, make sure to install dependencies in the correct environment
+
+### Running JavaScript Tests
+
+The project includes tests for the Lovelace card UI component. To run JavaScript tests:
+
+```bash
+# Install Node.js dependencies (first time only)
+npm install
+
+# Run all JavaScript tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with UI
+npm run test:ui
+```
+
+**JavaScript Test Coverage:**
+- Component initialization and configuration
+- UI rendering (spiral chart, legend, buttons)
+- Tab switching (today/tomorrow)
+- Pattern building for power off periods
+- Time formatting
+- Edge cases (missing entities, empty periods)
+- **Image snapshots** - Visual regression testing with PNG images
+
+**Image Snapshots:**
+The tests render the card in headless Chromium (Puppeteer) and compare it with reference PNGs in `tests/js/__snapshots__/`. The card ships its own font (Inter, `www/fonts/`), so the pictures are the same on macOS, Linux and CI — one set of references for everyone. The clock is frozen during these tests and tiny rendering differences are tolerated. On a mismatch the test writes `*-actual-diff.png` and `*-diff.png` next to the reference (git-ignored). If Chromium cannot start, the snapshot tests are skipped.
+
+To update snapshots after intentional UI changes:
+```bash
+rm tests/js/__snapshots__/*.png
+npm test
+```
 
 ### Version Management
 

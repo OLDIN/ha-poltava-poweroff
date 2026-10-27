@@ -1,0 +1,21 @@
+{
+  "name": "ha-poltava-poweroff",
+  "version": "0.2.13",
+  "description": "Home Assistant integration for Poltava power off schedules",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitest/ui": "^1.6.0",
+    "jsdom": "^24.0.0",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "puppeteer": "^23.0.0",
+    "vitest": "^1.6.0"
+  }
+}
