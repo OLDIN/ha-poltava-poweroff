@@ -1,21 +1,148 @@
-"""Provides the PoltavaPowerOffCoordinator class for polling power off periods."""
+"""Provides the PoltavaPowerOffCoordinator class for polling power off periods.
 
-from datetime import datetime, timedelta
+Ключові ідеї:
+  * графік зберігається по **абсолютних датах** (а не «сьогодні/завтра») і кешується на диску:
+    сайт лежить → показуємо останній добрий графік; рестарт HA → графік з кешу;
+    опівночі «завтра» само стає «сьогодні»;
+  * «ваша» черга (з налаштувань) — для сенсорів, календаря й автоматизацій, оновлюється завжди;
+  * «черга для перегляду» (select-сутність) — лише для картки; у фоні опитуються тільки
+    ваша й остання вибрана черга, решта береться з кешу або підтягується в момент перемикання.
+"""
+
+from __future__ import annotations
+
+import asyncio
 import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from homeassistant.components.calendar import CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, POWEROFF_GROUP_CONF, UPDATE_INTERVAL, PowerOffGroup, STATE_ON, STATE_OFF
+from .const import (
+    CACHE_KEEP_DAYS,
+    DOMAIN,
+    POWEROFF_GROUP_CONF,
+    STATE_OFF,
+    STATE_ON,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+    UPDATE_INTERVAL,
+    PowerOffGroup,
+    group_display,
+)
 from .energyua_scrapper import EnergyUaScrapper
 from .entities import PowerOffPeriod
 
 LOGGER = logging.getLogger(__name__)
 
 TIMEFRAME_TO_CHECK = timedelta(hours=24)
+
+Schedule = dict[str, list[tuple[float, float]]]  # "YYYY-MM-DD" -> [(start, end), ...]
+
+
+@dataclass
+class QueueState:
+    """Графік однієї черги + метадані свіжості."""
+
+    group: str
+    schedule: Schedule = field(default_factory=dict)
+    changed_at: datetime | None = None  # коли графік востаннє ЗМІНИВСЯ
+    success_at: datetime | None = None  # коли сайт востаннє успішно відповів
+    attempt_at: datetime | None = None  # остання спроба (вдала чи ні)
+    error: str | None = None
+    failures: int = 0
+    loading: bool = False
+
+    # -- дати
+    @staticmethod
+    def _today() -> date:
+        return dt_util.now().date()
+
+    def periods_for(self, day: date, today_flag: bool) -> list[PowerOffPeriod]:
+        return [PowerOffPeriod(s, e, today=today_flag) for s, e in self.schedule.get(day.isoformat(), [])]
+
+    @property
+    def today_periods(self) -> list[PowerOffPeriod]:
+        return self.periods_for(self._today(), True)
+
+    @property
+    def tomorrow_periods(self) -> list[PowerOffPeriod]:
+        return self.periods_for(self._today() + timedelta(days=1), False)
+
+    @property
+    def today_known(self) -> bool:
+        return self._today().isoformat() in self.schedule
+
+    @property
+    def tomorrow_known(self) -> bool:
+        return (self._today() + timedelta(days=1)).isoformat() in self.schedule
+
+    @property
+    def has_cached_data(self) -> bool:
+        return self.today_known or self.tomorrow_known
+
+    @property
+    def is_stale(self) -> bool:
+        return self.error is not None
+
+    # -- зміни
+    def apply(self, today: list[PowerOffPeriod] | None, tomorrow: list[PowerOffPeriod] | None, now: datetime) -> bool:
+        """Застосувати відповідь сайту. None за день = «немає даних» → не затираємо відоме."""
+        self.attempt_at = now
+        self.success_at = now
+        self.error = None
+        self.failures = 0
+        d0 = now.date()
+        new = dict(self.schedule)
+        if today is not None:
+            new[d0.isoformat()] = _to_tuples(today)
+        if tomorrow is not None:
+            new[(d0 + timedelta(days=1)).isoformat()] = _to_tuples(tomorrow)
+        changed = new != self.schedule
+        if changed:
+            self.schedule = new
+            self.changed_at = now
+        self.prune()
+        return changed
+
+    def fail(self, err: Exception, now: datetime) -> None:
+        self.attempt_at = now
+        self.failures += 1
+        self.error = str(err) or err.__class__.__name__
+
+    def prune(self) -> None:
+        keep_from = (self._today() - timedelta(days=CACHE_KEEP_DAYS)).isoformat()
+        self.schedule = {day: p for day, p in self.schedule.items() if day >= keep_from}
+
+    def is_fresh(self, max_age: timedelta) -> bool:
+        return self.success_at is not None and dt_util.now() - self.success_at < max_age
+
+    # -- (де)серіалізація для Store
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "schedule": {day: [list(p) for p in periods] for day, periods in self.schedule.items()},
+            "schedule_changed_at": _iso(self.changed_at),
+            "last_success_at": _iso(self.success_at),
+        }
+
+    @classmethod
+    def from_json(cls, group: str, raw: dict[str, Any]) -> QueueState:
+        state = cls(
+            group=group,
+            schedule={
+                day: [(float(s), float(e)) for s, e in periods] for day, periods in (raw.get("schedule") or {}).items()
+            },
+            changed_at=_parse_dt(raw.get("schedule_changed_at")),
+            success_at=_parse_dt(raw.get("last_success_at")),
+        )
+        state.prune()
+        return state
 
 
 class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
@@ -34,114 +161,250 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         self.hass = hass
         self.config_entry = config_entry
         self.group: PowerOffGroup = config_entry.data[POWEROFF_GROUP_CONF]
-        self.api = EnergyUaScrapper(self.group)
-        self.periods: list[PowerOffPeriod] = []  # Для сумісності з calendar - всі періоди
-        self.today_periods: list[PowerOffPeriod] = []
-        self.tomorrow_periods: list[PowerOffPeriod] = []
+        self.view_group: str = str(self.group)
+        self.queues: dict[str, QueueState] = {str(self.group): QueueState(str(self.group))}
+        self._scrapers: dict[str, EnergyUaScrapper] = {str(self.group): EnergyUaScrapper(self.group)}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._store: Store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{config_entry.entry_id}")
+
+    # ------------------------------------------------------------- accessors
+
+    @property
+    def api(self) -> EnergyUaScrapper:
+        """Скрапер вашої черги (зворотна сумісність, тести патчать саме його)."""
+        return self._scrapers[str(self.group)]
+
+    def _scraper(self, group: str) -> EnergyUaScrapper:
+        if group not in self._scrapers:
+            self._scrapers[group] = EnergyUaScrapper(group)  # type: ignore[arg-type]
+        return self._scrapers[group]
+
+    def queue_state(self, group: str) -> QueueState:
+        if group not in self.queues:
+            self.queues[group] = QueueState(group)
+        return self.queues[group]
+
+    @property
+    def home(self) -> QueueState:
+        return self.queue_state(str(self.group))
+
+    @property
+    def view(self) -> QueueState:
+        return self.queue_state(self.view_group)
+
+    # Властивості вашої черги — їх читають сенсори, календар і тести
+    @property
+    def schedule(self) -> Schedule:
+        return self.home.schedule
+
+    @property
+    def schedule_changed_at(self) -> datetime | None:
+        return self.home.changed_at
+
+    @property
+    def last_success_at(self) -> datetime | None:
+        return self.home.success_at
+
+    @property
+    def last_attempt_at(self) -> datetime | None:
+        return self.home.attempt_at
+
+    @property
+    def last_error(self) -> str | None:
+        return self.home.error
+
+    @property
+    def consecutive_failures(self) -> int:
+        return self.home.failures
+
+    @property
+    def has_cached_data(self) -> bool:
+        return self.home.has_cached_data
+
+    @property
+    def today_periods(self) -> list[PowerOffPeriod]:
+        return self.home.today_periods
+
+    @property
+    def tomorrow_periods(self) -> list[PowerOffPeriod]:
+        return self.home.tomorrow_periods
+
+    @property
+    def periods(self) -> list[PowerOffPeriod]:
+        """Всі періоди сьогодні + завтра (для calendar)."""
+        return self.today_periods + self.tomorrow_periods
+
+    @property
+    def today_known(self) -> bool:
+        return self.home.today_known
+
+    @property
+    def tomorrow_known(self) -> bool:
+        return self.home.tomorrow_known
+
+    @property
+    def is_stale(self) -> bool:
+        return self.home.is_stale
+
+    @property
+    def queue_display(self) -> str:
+        return group_display(self.group)
+
+    # ------------------------------------------------------------------ cache
+
+    async def async_load_cache(self) -> None:
+        """Підняти графіки з диска (викликається до першого запиту)."""
+        try:
+            raw = await self._store.async_load()
+        except Exception:
+            LOGGER.exception("Cannot load cached schedule, starting empty")
+            return
+        if not raw:
+            return
+        if "groups" in raw:
+            for group, data in raw["groups"].items():
+                self.queues[group] = QueueState.from_json(group, data)
+            self.view_group = raw.get("view_group") or self.view_group
+        elif raw.get("group"):  # формат 0.3.0-dev: один графік
+            self.queues[raw["group"]] = QueueState.from_json(raw["group"], raw)
+        LOGGER.debug("Loaded cached schedules: %s", {g: q.schedule for g, q in self.queues.items()})
+
+    def _cache_payload(self) -> dict[str, Any]:
+        return {
+            "home_group": str(self.group),
+            "view_group": self.view_group,
+            "groups": {g: q.to_json() for g, q in self.queues.items() if q.schedule},
+        }
+
+    async def _async_save(self) -> None:
+        try:
+            await self._store.async_save(self._cache_payload())
+        except Exception:
+            LOGGER.exception("Cannot save schedule cache")
+
+    # ----------------------------------------------------------------- fetch
+
+    async def _fetch_queue(self, group: str) -> QueueState:
+        """Запитати сайт для черги. Помилку записує в стан черги й прокидає далі."""
+        state = self.queue_state(group)
+        lock = self._locks.setdefault(group, asyncio.Lock())
+        async with lock:
+            now = dt_util.now()
+            try:
+                today, tomorrow = await self._scraper(group).get_power_off_periods()
+            except Exception as err:
+                state.fail(err, now)
+                raise
+            if state.apply(today, tomorrow, now):
+                LOGGER.info("Графік для черги %s змінився: %s", group, state.schedule)
+        return state
 
     async def _async_update_data(self) -> dict:
-        """Fetch power off periods from scrapper."""
+        """Fetch power off periods from scrapper. Never wipes known data on failure."""
+        home = str(self.group)
         try:
-            LOGGER.debug("Starting _async_update_data for group %s", self.group)
-            await self._fetch_periods()
-            LOGGER.debug("After _fetch_periods, periods count: %d", len(self.periods))
-            return {}  # noqa: TRY300
+            await self._fetch_queue(home)
         except Exception as err:
-            LOGGER.exception("Cannot obtain power offs periods for group %s", self.group)
-            msg = f"Power offs not polled: {err}"
-            raise UpdateFailed(msg) from err
+            if self.home.has_cached_data:
+                # Сайт лежить — лишаємо останній добрий графік і позначаємо його як застарілий.
+                LOGGER.warning(
+                    "energy-ua недоступний (%s, спроба %d). Показую збережений графік від %s",
+                    self.home.error,
+                    self.home.failures,
+                    self.home.success_at,
+                )
+            else:
+                LOGGER.error("Cannot obtain power offs periods for group %s: %s", home, self.home.error)
+                raise UpdateFailed(f"Power offs not polled: {self.home.error}") from err
 
-    async def _fetch_periods(self) -> None:
-        LOGGER.debug("Calling api.get_power_off_periods() for group %s", self.group)
-        today_periods, tomorrow_periods = await self.api.get_power_off_periods()
-        self.today_periods = today_periods
-        self.tomorrow_periods = tomorrow_periods
-        # Для calendar - об'єднуємо всі періоди
-        self.periods = today_periods + tomorrow_periods
-        LOGGER.debug(
-            "Fetched %d today periods, %d tomorrow periods", len(self.today_periods), len(self.tomorrow_periods)
-        )
+        if self.view_group != home:
+            try:
+                await self._fetch_queue(self.view_group)
+            except Exception:  # noqa: BLE001 — черга для перегляду не критична
+                LOGGER.debug("Cannot refresh view queue %s: %s", self.view_group, self.view.error)
 
-    def _get_next_power_change_dt(self, on: bool, use_tomorrow_if_no_today: bool = True) -> datetime | None:
-        """Get the next power on/off.
+        await self._async_save()
+        return {"home": home, "view": self.view_group}
 
-        Args:
-            on: True for power on, False for power off
-            use_tomorrow_if_no_today: If True and no today events found, check tomorrow
-        """
+    async def async_set_view_group(self, group: str, fetch: bool = True) -> None:
+        """Перемкнути чергу для перегляду (з select-сутності)."""
+        self.view_group = group
+        state = self.view
+        if fetch and not state.is_fresh(timedelta(seconds=UPDATE_INTERVAL)):
+            state.loading = True
+            self.async_update_listeners()
+            try:
+                await self._fetch_queue(group)
+            except Exception:  # noqa: BLE001
+                LOGGER.warning("Не вдалося завантажити графік черги %s: %s", group, state.error)
+            finally:
+                state.loading = False
+        await self._async_save()
+        self.async_update_listeners()
+
+    # ------------------------------------------------------- attributes
+
+    def queue_attributes(self, state: QueueState) -> dict[str, Any]:
+        """Атрибути для картки — однаковий формат для вашої черги й черги перегляду."""
+        return {
+            "poweroff_periods_today": [{"start": p.start, "end": p.end} for p in state.today_periods],
+            "poweroff_periods_tomorrow": [{"start": p.start, "end": p.end} for p in state.tomorrow_periods],
+            "next_off": _iso(self._next_change(state, on=False)),
+            "next_on": _iso(self._next_change(state, on=True)),
+            "queue": group_display(state.group),
+            "today_known": state.today_known,
+            "tomorrow_known": state.tomorrow_known,
+            "schedule_changed_at": _iso(state.changed_at),
+            "last_success_at": _iso(state.success_at),
+            "last_attempt_at": _iso(state.attempt_at),
+            "data_stale": state.is_stale,
+            "last_error": state.error,
+        }
+
+    # --------------------------------------------------------- next on / off
+
+    def _next_change(self, state: QueueState, on: bool) -> datetime | None:
+        """Наступне увімкнення (on=True) або вимкнення для черги."""
         now = dt_util.now()
-        # Спочатку шукаємо в сьогоднішніх періодах
         today_events = []
-        for period in self.today_periods:
+        for period in state.today_periods:
             start, end = period.to_datetime_period(now.tzinfo)
             if start > now or end > now:
-                today_events.append(self._get_calendar_event(start, end))
+                today_events.append((start, end))
+        dts = sorted(e if on else s for s, e in today_events)
+        for dt in dts:
+            if dt > now:
+                return dt
 
-        if today_events:
-            if on:
-                dts = sorted(event.end for event in today_events)
-            else:
-                dts = sorted(event.start for event in today_events)
-            LOGGER.debug("Next dts from today: %s", dts)
-            for dt in dts:
-                if dt > now:
-                    return dt  # type: ignore
-
-        # Якщо сьогодні немає більше подій і дозволено, шукаємо в завтрашніх
-        if use_tomorrow_if_no_today and self.tomorrow_periods:
-            tomorrow_events = []
-            for period in self.tomorrow_periods:
-                start, end = period.to_datetime_period(now.tzinfo)
-                tomorrow_events.append(self._get_calendar_event(start, end))
-
-            if tomorrow_events:
-                if on:
-                    dts = sorted(event.end for event in tomorrow_events)
-                else:
-                    dts = sorted(event.start for event in tomorrow_events)
-                LOGGER.debug("Next dts from tomorrow: %s", dts)
-                if dts:
-                    return dts[0]  # type: ignore
-
-        return None
+        tomorrow = [period.to_datetime_period(now.tzinfo) for period in state.tomorrow_periods]
+        dts = sorted(e if on else s for s, e in tomorrow)
+        return dts[0] if dts else None
 
     @property
     def next_poweroff(self) -> datetime | None:
         """Get the next poweroff time."""
-        dt = self._get_next_power_change_dt(on=False)
-        LOGGER.debug("Next poweroff: %s", dt)
-        return dt
+        return self._next_change(self.home, on=False)
 
     @property
     def next_poweron(self) -> datetime | None:
         """Get next connectivity time."""
-        dt = self._get_next_power_change_dt(on=True)
-        LOGGER.debug("Next powerof: %s", dt)
-        return dt
+        return self._next_change(self.home, on=True)
 
     @property
     def current_state(self) -> str:
         """Get the current state."""
-        now = dt_util.now()
-        event = self.get_event_at(now)
-        return STATE_OFF if event else STATE_ON
+        return STATE_OFF if self.get_event_at(dt_util.now()) else STATE_ON
 
     def get_event_at(self, at: datetime) -> CalendarEvent | None:
         """Get the current event."""
-        # Спочатку перевіряємо сьогоднішні періоди
         for period in self.today_periods:
             start, end = period.to_datetime_period(at.tzinfo)
-            # Використовуємо start <= at < end, щоб коли at == end, подія вже не активна
-            # Це важливо для періодів, що закінчуються в 12:00 (опівночі або опівдня)
+            # start <= at < end: коли at == end, подія вже не активна
             if start <= at < end:
                 return self._get_calendar_event(start, end)
         return None
 
-    def get_events_between(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-    ) -> list[CalendarEvent]:
+    def get_events_between(self, start_date: datetime, end_date: datetime) -> list[CalendarEvent]:
         """Get all events."""
         events = []
         for period in self.periods:
@@ -151,18 +414,26 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         return events
 
     def _get_calendar_event(self, start: datetime, end: datetime) -> CalendarEvent:
-        return CalendarEvent(
-            start=start,
-            end=end,
-            summary=STATE_OFF,
-        )
+        return CalendarEvent(start=start, end=end, summary=STATE_OFF)
 
     def get_next_off_time(self) -> str | None:
         """Get the next poweroff time as string."""
-        dt = self.next_poweroff
-        return dt.isoformat() if dt else None
+        return _iso(self.next_poweroff)
 
     def get_next_on_time(self) -> str | None:
         """Get next connectivity time as string."""
-        dt = self.next_poweron
-        return dt.isoformat() if dt else None
+        return _iso(self.next_poweron)
+
+
+def _to_tuples(periods: list[PowerOffPeriod]) -> list[tuple[float, float]]:
+    return [(float(p.start), float(p.end)) for p in periods]
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if not value:
+        return None
+    return dt_util.parse_datetime(str(value))

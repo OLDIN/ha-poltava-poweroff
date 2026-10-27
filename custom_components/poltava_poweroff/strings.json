@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Poltava Power Offline",
+        "description": "Choose your outage queue. Find it on energy-ua.info by your address.",
+        "data": {
+          "poweroff_group": "Queue"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach energy-ua.info. Try again later.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This queue is already added"
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh schedule",
+      "description": "Fetch the outage schedule from energy-ua.info right now."
+    }
+  }
+}

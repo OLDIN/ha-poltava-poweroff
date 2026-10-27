@@ -2,7 +2,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from poltava_poweroff.energyua_scrapper import EnergyUaScrapper
 from poltava_poweroff.entities import PowerOffPeriod
 
@@ -27,7 +26,7 @@ def load_energyua_page(test_page: str) -> str:
                 PowerOffPeriod(12.5, 15.0, today=True),
                 PowerOffPeriod(18.5, 20.0, today=True),
             ],
-            [],
+            None,  # заголовок «завтра» є, але графіка ще немає
         ),
         (
             "1.1",
@@ -37,13 +36,13 @@ def load_energyua_page(test_page: str) -> str:
                 PowerOffPeriod(12.0, 14.5, today=True),
                 PowerOffPeriod(18.0, 20.0, today=True),
             ],
-            [],
+            None,
         ),
         (
             "1.2",
             "energyua_12_nodata_page.html",
-            [],
-            [],
+            None,  # «Немає даних» — не те саме, що «відключень немає»
+            None,
         ),
         (
             "1.1",
@@ -99,9 +98,55 @@ async def test_energyua_scrapper(group, test_page, expected_today, expected_tomo
         today_periods, tomorrow_periods = await scrapper.get_power_off_periods()
 
     # Then the power-off periods are extracted correctly
-    assert today_periods is not None
-    assert tomorrow_periods is not None
-    assert len(today_periods) == len(expected_today)
-    assert len(tomorrow_periods) == len(expected_tomorrow)
     assert today_periods == expected_today
     assert tomorrow_periods == expected_tomorrow
+
+
+def _mock_scraper(get):
+    return patch(
+        "poltava_poweroff.energyua_scrapper.cloudscraper.create_scraper",
+        return_value=type("MockScraper", (), {"get": staticmethod(get)})(),
+    )
+
+
+def _resp(text: str, status: int = 200):
+    return type("MockResponse", (), {"text": text, "status_code": status})()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        _resp("<html>Bad gateway</html>", 502),
+        _resp("", 200),
+        _resp("<html><title>Just a moment...</title>Checking your browser</html>", 200),
+        _resp("<html>Технічні роботи</html>", 503),
+    ],
+)
+async def test_scrapper_raises_on_bad_page(response) -> None:
+    """Сайт лежить / Cloudflare / техроботи → виняток, а не порожній графік."""
+    from poltava_poweroff.energyua_scrapper import ScraperError
+
+    with _mock_scraper(lambda *a, **k: response), pytest.raises(ScraperError):
+        await EnergyUaScrapper("1-1").get_power_off_periods()
+
+
+@pytest.mark.asyncio
+async def test_scrapper_raises_on_network_error() -> None:
+    from poltava_poweroff.energyua_scrapper import ScraperError
+
+    def boom(*a, **k):
+        raise ConnectionError("Connection reset by peer")
+
+    with _mock_scraper(boom), pytest.raises(ScraperError):
+        await EnergyUaScrapper("1-1").get_power_off_periods()
+
+
+def test_published_day_without_outages_is_empty_list() -> None:
+    """Шкала на день є, але жодної активної години → [] (відключень немає), а не None."""
+    html = load_energyua_page("energyua_12_page.html").replace("hour_active", "hour_x").replace(
+        'class="scale_info_periods"', 'class="x"'
+    )
+    today, tomorrow = EnergyUaScrapper("1-2").parse_page(html)
+    assert today == []
+    assert tomorrow is None

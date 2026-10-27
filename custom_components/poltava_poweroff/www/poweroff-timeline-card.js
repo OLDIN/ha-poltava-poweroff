@@ -1,3 +1,266 @@
+const CARD_VERSION = '1.1.0';
+
+// Власний шрифт картки: однаковий вигляд на будь-якій ОС/браузері (і однакові скриншоти в тестах).
+// Inter (SIL OFL 1.1), лише латиниця + кирилиця, ~67 КБ. Файли лежать поруч: www/fonts/.
+const FONT_FAMILY = 'PoweroffInter';
+const FONT_STACK = `"${FONT_FAMILY}", var(--ha-font-family-body, Roboto), system-ui, sans-serif`;
+const FONT_BASE = '/local/poltava_poweroff/fonts/';
+const FONT_FILES = [
+  {
+    file: 'inter-latin-wght-normal.woff2',
+    unicodeRange: 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD',
+  },
+  { file: 'inter-cyrillic-wght-normal.woff2', unicodeRange: 'U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116' },
+];
+
+/**
+ * @font-face всередині shadow DOM (де живуть картки HA) браузери ігнорують,
+ * тому реєструємо шрифт глобально через FontFace API — один раз на сторінку.
+ */
+function loadCardFonts() {
+  if (typeof FontFace === 'undefined' || !document.fonts || window.__poweroffFontsLoaded) return;
+  window.__poweroffFontsLoaded = true;
+  FONT_FILES.forEach(({ file, unicodeRange }) => {
+    const face = new FontFace(FONT_FAMILY, `url(${FONT_BASE}${file}) format('woff2')`, {
+      weight: '100 900',
+      style: 'normal',
+      display: 'swap',
+      unicodeRange,
+    });
+    document.fonts.add(face);
+    face.load().catch(() => { /* немає файлу — лишається запасний шрифт зі стеку */ });
+  });
+}
+
+const QUEUES = ['1.1', '1.2', '2.1', '2.2', '3.1', '3.2', '4.1', '4.2', '5.1', '5.2', '6.1', '6.2'];
+
+const CARD_STYLES = `
+  poweroff-timeline-card ha-card { overflow: visible; font-family: ${FONT_STACK}; }
+  poweroff-timeline-card button { font-family: inherit; }
+
+  .pot-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 16px 16px 0;
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  .pot-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--primary-text-color);
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pot-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .day-switcher {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--card-background-color, #1e1e1e);
+    border-radius: 12px;
+    padding: 2px;
+    flex-shrink: 0;
+  }
+
+  .day-switcher-button {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--secondary-text-color, #b5b5b5);
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .day-switcher-button.active { background: var(--primary-color, #03a9f4); color: #fff; }
+  .day-switcher-button:hover:not(.active) {
+    background: var(--divider-color, rgba(255, 255, 255, 0.1));
+    color: var(--primary-text-color);
+  }
+  .day-switcher-button ha-icon { --mdc-icon-size: 22px; display: block; }
+
+  .queue-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 34px;
+    padding: 0 8px 0 10px;
+    border-radius: 10px;
+    border: 1px solid var(--divider-color, #3a3a3a);
+    background: var(--secondary-background-color, #262626);
+    color: var(--primary-text-color);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .queue-chip[hidden] { display: none; }
+  .queue-chip.open { border-color: var(--primary-color, #03a9f4); }
+  .queue-chip ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color, #9e9e9e); }
+
+  .queue-menu {
+    position: absolute;
+    top: 56px;
+    right: 16px;
+    z-index: 10;
+    width: 268px;
+    box-sizing: border-box;
+    padding: 12px;
+    border-radius: 14px;
+    background: var(--card-background-color, #2a2a2a);
+    border: 1px solid var(--divider-color, #3a3a3a);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .queue-menu[hidden] { display: none; }
+  .queue-menu-caption { font-size: 12px; font-weight: 500; color: var(--secondary-text-color, #a8a8a8); margin-bottom: 8px; }
+  .queue-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .queue-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 44px;
+    border-radius: 10px;
+    border: 1px solid var(--divider-color, #333);
+    background: transparent;
+    color: var(--primary-text-color);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .queue-option.home { border-color: var(--secondary-text-color, #6a6a6a); }
+  .queue-option.selected { background: var(--primary-color, #03a9f4); border-color: var(--primary-color, #03a9f4); color: #fff; }
+  .queue-option ha-icon { --mdc-icon-size: 14px; }
+  .queue-menu-hint { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--secondary-text-color, #a8a8a8); }
+  .queue-menu-hint ha-icon { --mdc-icon-size: 14px; }
+
+  .spiral-wrapper { display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center; }
+  .spiral-chart { width: 100%; max-width: 520px; }
+  .spiral-segment { transition: opacity 0.3s ease; }
+  .spiral-hour-label { font-size: 24px; font-weight: 900; fill: #0f3547; text-anchor: middle; dominant-baseline: middle; }
+  .spiral-chart text { font-family: ${FONT_STACK}; }
+  .spiral-center-text { fill: #b1b1b1; text-anchor: middle; }
+  .center-queue { font-size: 36px; font-weight: 700; fill: #aab1b6; }
+  .center-date { font-size: 18px; font-weight: 600; }
+  .center-stats { font-size: 22px; font-weight: 700; }
+  .center-stats tspan:first-child { fill: #cf6f6f; }
+  .center-stats tspan:last-child { fill: #65a46f; }
+  .center-loading { font-size: 18px; font-weight: 500; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
+
+  .info-banner, .stale-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    text-align: left;
+    color: var(--primary-text-color);
+  }
+  .info-banner { justify-content: space-between; background: rgba(138, 180, 248, 0.12); border: 1px solid rgba(138, 180, 248, 0.35); }
+  .info-banner button {
+    border: none;
+    background: none;
+    color: var(--primary-color, #8ab4f8);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 0;
+  }
+  .stale-banner { align-items: flex-start; background: rgba(255, 167, 38, 0.15); border: 1px solid rgba(255, 167, 38, 0.45); }
+  .stale-banner ha-icon { --mdc-icon-size: 18px; color: #ffa726; flex-shrink: 0; }
+
+  .no-data-note { font-size: 13px; color: var(--secondary-text-color, #b5b5b5); }
+
+  .updated-line {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 12px;
+    color: var(--secondary-text-color, #b5b5b5);
+    opacity: 0.85;
+    cursor: help;
+    border: none;
+    background: none;
+    font-family: inherit;
+    padding: 4px 8px;
+  }
+  .updated-line .updated-main { display: flex; align-items: center; gap: 6px; }
+  .updated-line ha-icon { --mdc-icon-size: 16px; }
+
+  /* Tooltip над рядком «Графік оновлено»: hover/фокус на десктопі, тап на телефоні */
+  .updated-wrap { position: relative; display: inline-flex; justify-content: center; }
+  .updated-tooltip {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    z-index: 10;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(300px, 90vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--secondary-background-color, #2f2f2f);
+    border: 1px solid var(--divider-color, #444);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    color: var(--primary-text-color, #e1e1e1);
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: left;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, 4px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  }
+  .updated-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -6px;
+    border: 6px solid transparent;
+    border-top-color: var(--secondary-background-color, #2f2f2f);
+  }
+  .updated-wrap:hover .updated-tooltip,
+  .updated-wrap:focus-within .updated-tooltip,
+  .updated-wrap.open .updated-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+  }
+  .tooltip-row { display: flex; align-items: flex-start; gap: 6px; }
+  .tooltip-row ha-icon { flex-shrink: 0; margin-top: 1px; }
+  .tooltip-row ha-icon { --mdc-icon-size: 14px; color: var(--secondary-text-color, #a8a8a8); }
+  .tooltip-row.ok ha-icon { color: #65a46f; }
+  .tooltip-row.error { color: #ffb74d; overflow-wrap: anywhere; }
+  .tooltip-row.error ha-icon { color: #ffa726; }
+`;
+
 class PowerOffTimelineCard extends HTMLElement {
   setConfig(config) {
     if (!config.entity) {
@@ -5,120 +268,221 @@ class PowerOffTimelineCard extends HTMLElement {
     }
     this.config = config;
     this.selectedTab = 'today'; // 'today' або 'tomorrow'
+    this._userPickedTab = false; // після ручного вибору не перемикаємо таб автоматично
+    this._lastState = undefined;
+    this._lastQueueState = undefined;
+    this._lastRenderAt = 0;
+    this._menuOpen = false;
+    this._pendingQueue = null;
+    this._showDetails = false;
+  }
+
+  /** select-сутність «черга для перегляду»: з конфіга або знайдена автоматично. */
+  findQueueEntity(hass) {
+    if (this.config.queue_entity === false) return null;
+    if (this.config.queue_entity) return hass.states[this.config.queue_entity] ? this.config.queue_entity : null;
+    if (this._queueEntityId && hass.states[this._queueEntityId]) return this._queueEntityId;
+    const home = hass.states[this.config.entity]?.attributes?.queue;
+    const found = Object.keys(hass.states).find((id) => {
+      if (!id.startsWith('select.')) return false;
+      const a = hass.states[id].attributes || {};
+      return a.home_queue !== undefined && (!home || a.home_queue === home);
+    });
+    this._queueEntityId = found || null;
+    return this._queueEntityId;
   }
 
   set hass(hass) {
     this._hass = hass;
 
+    // hass приходить на КОЖНУ зміну будь-якої сутності в HA. Перемальовуємо тільки
+    // коли змінились наші сутності, або раз на хвилину (щоб рухалась мітка поточного часу).
+    const stateObj = hass.states[this.config.entity];
+    const queueId = this.findQueueEntity(hass);
+    const queueObj = queueId ? hass.states[queueId] : undefined;
+    if (
+      this.card &&
+      stateObj === this._lastState &&
+      queueObj === this._lastQueueState &&
+      Date.now() - this._lastRenderAt < 60000
+    ) {
+      return;
+    }
+    this._lastState = stateObj;
+    this._lastQueueState = queueObj;
+
     if (!this.card) {
-      this.card = document.createElement('ha-card');
-      this.appendChild(this.card);
-
-      // Створюємо кастомний заголовок з перемикачами
-      this.headerContainer = document.createElement('div');
-      this.headerContainer.style.display = 'flex';
-      this.headerContainer.style.alignItems = 'center';
-      this.headerContainer.style.justifyContent = 'space-between';
-      this.headerContainer.style.padding = '16px 16px 0';
-      this.headerContainer.style.width = '100%';
-      this.headerContainer.style.boxSizing = 'border-box';
-      this.headerContainer.style.minWidth = '0';
-
-      // Створюємо текст заголовка (зліва)
-      this.headerText = document.createElement('span');
-      this.headerText.style.fontSize = '16px';
-      this.headerText.style.fontWeight = '500';
-      this.headerText.style.color = 'var(--primary-text-color)';
-      this.headerText.style.flexShrink = '1';
-      this.headerText.style.minWidth = '0';
-      this.headerText.style.overflow = 'hidden';
-      this.headerText.style.textOverflow = 'ellipsis';
-      this.headerText.style.whiteSpace = 'nowrap';
-      this.headerContainer.appendChild(this.headerText);
-
-      // Створюємо контейнер для перемикачів (справа)
-      this.daySwitcher = document.createElement('div');
-      this.daySwitcher.className = 'day-switcher';
-      this.daySwitcher.style.cssText = 'display: flex; align-items: center; gap: 4px; background: var(--card-background-color, #1e1e1e); border-radius: 12px; padding: 2px; flex-shrink: 0;';
-
-      // Створюємо кнопки перемикачів
-      this.todayButton = document.createElement('button');
-      this.todayButton.className = 'day-switcher-button';
-      this.todayButton.setAttribute('data-tab', 'today');
-      this.todayButton.setAttribute('title', 'Сьогодні');
-      this.todayButton.style.cssText = 'display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; color: var(--secondary-text-color, #b5b5b5); background: transparent; border: none; padding: 0; margin: 0;';
-      const todayIcon = document.createElement('ha-icon');
-      todayIcon.setAttribute('icon', 'mdi:calendar-today');
-      todayIcon.style.cssText = 'width: 24px; height: 24px; margin: 0; padding: 0; display: block;';
-      this.todayButton.appendChild(todayIcon);
-
-      this.tomorrowButton = document.createElement('button');
-      this.tomorrowButton.className = 'day-switcher-button';
-      this.tomorrowButton.setAttribute('data-tab', 'tomorrow');
-      this.tomorrowButton.setAttribute('title', 'Завтра');
-      this.tomorrowButton.style.cssText = 'display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; color: var(--secondary-text-color, #b5b5b5); background: transparent; border: none; padding: 0; margin: 0;';
-      const tomorrowIcon = document.createElement('ha-icon');
-      tomorrowIcon.setAttribute('icon', 'mdi:calendar-arrow-right');
-      tomorrowIcon.style.cssText = 'width: 24px; height: 24px; margin: 0; padding: 0; display: block;';
-      this.tomorrowButton.appendChild(tomorrowIcon);
-
-      this.daySwitcher.appendChild(this.todayButton);
-      this.daySwitcher.appendChild(this.tomorrowButton);
-      this.headerContainer.appendChild(this.daySwitcher);
-
-      // Додаємо обробники подій
-      this.todayButton.addEventListener('click', () => {
-        if (this.selectedTab !== 'today') {
-          this.selectedTab = 'today';
-          this.updateTimeline();
-        }
-      });
-
-      this.tomorrowButton.addEventListener('click', () => {
-        if (this.selectedTab !== 'tomorrow') {
-          this.selectedTab = 'tomorrow';
-          this.updateTimeline();
-        }
-      });
-
-      this.card.appendChild(this.headerContainer);
-
-      this.content = document.createElement('div');
-      this.content.style.padding = '16px';
-      this.card.appendChild(this.content);
+      this.buildSkeleton();
     }
 
     this.updateTimeline();
   }
 
+  buildSkeleton() {
+    loadCardFonts();
+    this.card = document.createElement('ha-card');
+    this.appendChild(this.card);
+
+    this.styleEl = document.createElement('style');
+    this.styleEl.textContent = CARD_STYLES;
+    this.card.appendChild(this.styleEl);
+
+    this.headerContainer = document.createElement('div');
+    this.headerContainer.className = 'pot-header';
+
+    this.headerText = document.createElement('span');
+    this.headerText.className = 'pot-title';
+    this.headerContainer.appendChild(this.headerText);
+
+    const actions = document.createElement('div');
+    actions.className = 'pot-actions';
+
+    // Чип черги (видно лише коли є select-сутність)
+    this.queueChip = document.createElement('button');
+    this.queueChip.type = 'button';
+    this.queueChip.className = 'queue-chip';
+    this.queueChip.setAttribute('aria-haspopup', 'true');
+    this.queueChip.setAttribute('aria-expanded', 'false');
+    this.queueChip.setAttribute('title', 'Обрати чергу для перегляду');
+    this.queueChip.hidden = true;
+    this.queueChip.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.setMenuOpen(!this._menuOpen);
+    });
+    actions.appendChild(this.queueChip);
+
+    this.daySwitcher = document.createElement('div');
+    this.daySwitcher.className = 'day-switcher';
+    this.todayButton = this.makeDayButton('today', 'Сьогодні', 'mdi:calendar-today');
+    this.tomorrowButton = this.makeDayButton('tomorrow', 'Завтра', 'mdi:calendar-arrow-right');
+    this.daySwitcher.appendChild(this.todayButton);
+    this.daySwitcher.appendChild(this.tomorrowButton);
+    actions.appendChild(this.daySwitcher);
+    this.headerContainer.appendChild(actions);
+
+    // Меню вибору черги
+    this.queueMenu = document.createElement('div');
+    this.queueMenu.className = 'queue-menu';
+    this.queueMenu.hidden = true;
+    this.queueMenu.addEventListener('click', (ev) => ev.stopPropagation());
+    this.queueMenu.innerHTML = `
+      <div class="queue-menu-caption">Показати графік черги</div>
+      <div class="queue-grid">
+        ${QUEUES.map((q) => `<button type="button" class="queue-option" data-queue="${q}">${q}</button>`).join('')}
+      </div>
+      <div class="queue-menu-hint"><ha-icon icon="mdi:home-outline"></ha-icon><span>ваша черга — сенсори й автоматизації завжди по ній</span></div>`;
+    this.queueMenu.querySelectorAll('.queue-option').forEach((btn) => {
+      btn.addEventListener('click', () => this.selectQueue(btn.dataset.queue));
+    });
+    this.headerContainer.appendChild(this.queueMenu);
+
+    this._outsideClick = () => this.setMenuOpen(false);
+
+    this.card.appendChild(this.headerContainer);
+
+    this.content = document.createElement('div');
+    this.content.style.padding = '16px';
+    this.content.addEventListener('click', (ev) => {
+      const target = ev.target.closest && ev.target.closest('[data-action]');
+      if (!target) return;
+      if (target.dataset.action === 'go-home') this.selectQueue(this._homeQueue);
+      if (target.dataset.action === 'toggle-details') {
+        this._showDetails = !this._showDetails;
+        this.updateTimeline();
+      }
+    });
+    this.card.appendChild(this.content);
+  }
+
+  makeDayButton(tab, title, icon) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'day-switcher-button';
+    button.setAttribute('data-tab', tab);
+    button.setAttribute('title', title);
+    button.setAttribute('aria-label', title);
+    const iconEl = document.createElement('ha-icon');
+    iconEl.setAttribute('icon', icon);
+    button.appendChild(iconEl);
+    button.addEventListener('click', () => {
+      this._userPickedTab = true;
+      if (this.selectedTab !== tab) {
+        this.selectedTab = tab;
+        this.updateTimeline();
+      }
+    });
+    return button;
+  }
+
+  setMenuOpen(open) {
+    this._menuOpen = open;
+    if (!this.queueMenu) return;
+    this.queueMenu.hidden = !open;
+    this.queueChip.classList.toggle('open', open);
+    this.queueChip.setAttribute('aria-expanded', String(open));
+    if (open) {
+      document.addEventListener('click', this._outsideClick);
+    } else {
+      document.removeEventListener('click', this._outsideClick);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._outsideClick) document.removeEventListener('click', this._outsideClick);
+  }
+
+  selectQueue(queue) {
+    this.setMenuOpen(false);
+    const entityId = this._queueEntityId;
+    if (!entityId || !queue) return;
+    const current = this._hass.states[entityId];
+    if (current && current.state === queue) return;
+    this._pendingQueue = queue;
+    this.updateTimeline();
+    this._hass.callService('select', 'select_option', { entity_id: entityId, option: queue });
+  }
+
+  /** Звідки брати графік: select (черга для перегляду) або сам сенсор (стара поведінка). */
+  dataSource() {
+    const sensor = this._hass.states[this.config.entity];
+    const queueObj = this._queueEntityId ? this._hass.states[this._queueEntityId] : undefined;
+    return { sensor, queueObj, source: queueObj || sensor };
+  }
+
   updateTimeline() {
-    const entity = this._hass.states[this.config.entity];
-    if (!entity) {
+    this._lastRenderAt = Date.now();
+    const { sensor, queueObj, source: entity } = this.dataSource();
+    if (!sensor || !entity) {
       this.content.innerHTML = '<div>Entity not found</div>';
       return;
     }
 
-    const todayPeriods = entity.attributes.poweroff_periods_today || [];
-    const tomorrowPeriods = entity.attributes.poweroff_periods_tomorrow || [];
-    const nextOff = entity.attributes.next_off;
-    const nextOn = entity.attributes.next_on;
+    const attrs = entity.attributes || {};
+    this._homeQueue = queueObj ? queueObj.attributes.home_queue : attrs.queue;
+    const viewQueue = queueObj ? queueObj.state : attrs.queue;
+    if (this._pendingQueue && viewQueue === this._pendingQueue && !attrs.loading) {
+      this._pendingQueue = null;
+    }
+    const loading = Boolean(this._pendingQueue || attrs.loading);
+    const shownQueue = this._pendingQueue || viewQueue;
+
+    const todayPeriods = loading ? [] : attrs.poweroff_periods_today || [];
+    const tomorrowPeriods = loading ? [] : attrs.poweroff_periods_tomorrow || [];
+    const nextOff = attrs.next_off;
+    const nextOn = attrs.next_on;
     const now = new Date();
 
-    // Автоматично вибираємо таб: якщо сьогодні немає більше періодів, показуємо завтра
-    if (this.selectedTab === 'today' && todayPeriods.length === 0 && tomorrowPeriods.length > 0) {
-      // Перевіряємо, чи є ще сьогоднішні події в майбутньому
-      const hasFutureToday = todayPeriods.some(period => {
-        const endHour = Number(period.end);
-        const endTime = new Date(now);
-        endTime.setHours(Math.floor(endHour), (endHour % 1) * 60, 0, 0);
-        return endTime > now;
+    // Автоматично показуємо завтра, якщо сьогоднішні відключення вже минули (або їх немає),
+    // а на завтра графік є. Після ручного вибору таба користувачем — не втручаємось.
+    if (!this._userPickedTab && tomorrowPeriods.length > 0) {
+      const nowHours = now.getHours() + now.getMinutes() / 60;
+      const hasFutureToday = todayPeriods.some((period) => {
+        const end = Number(period.end) === 0 ? 24 : Number(period.end);
+        return end > nowHours;
       });
-      if (!hasFutureToday) {
-        this.selectedTab = 'tomorrow';
-      }
+      this.selectedTab = hasFutureToday ? 'today' : 'tomorrow';
     }
 
-    // Визначаємо періоди та дату в залежності від вибраного таба
     const periods = this.selectedTab === 'today' ? todayPeriods : tomorrowPeriods;
     const displayDate = new Date(now);
     if (this.selectedTab === 'tomorrow') {
@@ -128,157 +492,34 @@ class PowerOffTimelineCard extends HTMLElement {
     const pattern = this.buildPattern(periods);
     const currentIndex = this.selectedTab === 'today'
       ? (now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
-      : -1; // Для завтра не показуємо поточний час
+      : -1;
 
-    // Оновлюємо тільки текст заголовка та класи активності (без перестворення HTML)
-    const titleText = this.selectedTab === 'today' ? 'Відключення сьогодні' : 'Відключення завтра';
-    this.headerText.textContent = titleText;
+    this.headerText.textContent = this.selectedTab === 'today' ? 'Відключення сьогодні' : 'Відключення завтра';
+    this.todayButton.classList.toggle('active', this.selectedTab === 'today');
+    this.tomorrowButton.classList.toggle('active', this.selectedTab === 'tomorrow');
 
-    // Оновлюємо класи активності для кнопок
-    if (this.selectedTab === 'today') {
-      this.todayButton.classList.add('active');
-      this.tomorrowButton.classList.remove('active');
-      this.todayButton.style.background = 'var(--primary-color, #03a9f4)';
-      this.todayButton.style.color = 'white';
-      this.tomorrowButton.style.background = 'transparent';
-      this.tomorrowButton.style.color = 'var(--secondary-text-color, #b5b5b5)';
-    } else {
-      this.todayButton.classList.remove('active');
-      this.tomorrowButton.classList.add('active');
-      this.todayButton.style.background = 'transparent';
-      this.todayButton.style.color = 'var(--secondary-text-color, #b5b5b5)';
-      this.tomorrowButton.style.background = 'var(--primary-color, #03a9f4)';
-      this.tomorrowButton.style.color = 'white';
+    // Чип і меню черг
+    this.queueChip.hidden = !queueObj;
+    if (queueObj) {
+      const isHome = shownQueue === this._homeQueue;
+      this.queueChip.innerHTML = `${isHome ? '<ha-icon icon="mdi:home-outline"></ha-icon>' : ''}<span>${this.escape(shownQueue)}</span><ha-icon icon="mdi:chevron-down"></ha-icon>`;
+      this.queueMenu.querySelectorAll('.queue-option').forEach((btn) => {
+        const q = btn.dataset.queue;
+        btn.classList.toggle('selected', q === shownQueue);
+        btn.classList.toggle('home', q === this._homeQueue);
+        btn.setAttribute('aria-pressed', String(q === shownQueue));
+        btn.setAttribute('aria-label', `Черга ${q}${q === this._homeQueue ? ', ваша' : ''}`);
+        btn.innerHTML = `${q === this._homeQueue ? '<ha-icon icon="mdi:home-outline"></ha-icon>' : ''}${q}`;
+      });
     }
 
+    const viewEntity = { ...entity, attributes: { ...attrs, queue: shownQueue } };
     this.content.innerHTML = `
-      <style>
-        .day-switcher {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          background: var(--card-background-color, #1e1e1e);
-          border-radius: 12px;
-          padding: 2px;
-        }
-
-        .day-switcher-button {
-          display: grid;
-          place-items: center;
-          width: 32px;
-          height: 32px;
-          border-radius: 10px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          color: var(--secondary-text-color, #b5b5b5);
-          background: transparent;
-          border: none;
-          padding: 0;
-          margin: 0;
-        }
-
-        .day-switcher-button ha-icon {
-          width: 20px;
-          height: 20px;
-          margin: 0;
-          padding: 0;
-          display: block;
-        }
-
-        .day-switcher-button ha-icon svg {
-          display: block;
-          width: 100%;
-          height: 100%;
-          margin: 0;
-        }
-
-        .day-switcher-button:hover:not(.active) {
-          background: var(--divider-color, rgba(255, 255, 255, 0.1));
-          color: var(--primary-text-color);
-        }
-
-        .spiral-wrapper {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          align-items: center;
-          text-align: center;
-        }
-
-        .spiral-chart {
-          width: 100%;
-          max-width: 520px;
-        }
-
-        .spiral-segment {
-          transition: opacity 0.3s ease;
-        }
-
-        .spiral-hour-label {
-          font-size: 24px;
-          font-weight: 900;
-          fill: #0f3547;
-          text-anchor: middle;
-          dominant-baseline: middle;
-        }
-
-        .spiral-center-text {
-          font-family: "TT Firs Neue", "Segoe UI", sans-serif;
-          fill: #b1b1b1;
-          text-anchor: middle;
-        }
-
-        .center-queue {
-          font-size: 36px;
-          font-weight: 700;
-          fill: #aab1b6;
-        }
-
-        .center-date {
-          font-size: 18px;
-          font-weight: 600;
-        }
-
-        .center-stats {
-          font-size: 22px;
-          font-weight: 700;
-        }
-
-        .center-stats tspan:first-child {
-          fill: #cf6f6f;
-        }
-
-        .center-stats tspan:last-child {
-          fill: #65a46f;
-        }
-
-        .legend {
-          display: flex;
-          gap: 18px;
-          font-size: 14px;
-          color: var(--secondary-text-color, #b5b5b5);
-        }
-
-        .legend-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .legend-dot {
-          width: 18px;
-          height: 18px;
-          border-radius: 4px;
-        }
-
-        .info-line {
-          font-size: 14px;
-          color: var(--secondary-text-color, #b5b5b5);
-        }
-      </style>
-
       <div class="spiral-wrapper">
-        ${this.renderSpiral(pattern, currentIndex, displayDate, entity, this.selectedTab)}
+        ${this.renderViewBanner(queueObj, shownQueue)}
+        ${loading ? '' : this.renderStaleBanner(entity)}
+        ${this.renderSpiral(pattern, currentIndex, displayDate, viewEntity, this.selectedTab, loading)}
+        ${loading ? '' : this.renderNoDataNote(entity)}
         <div class="legend">
           <div class="legend-item">
             <span class="legend-dot" style="background:rgb(255 182 193);"></span>
@@ -290,38 +531,25 @@ class PowerOffTimelineCard extends HTMLElement {
           </div>
         </div>
         <div class="legend">
-          <div>Наступне вимкнення: ${this.formatTime(nextOff)}</div>
-          <div>Наступне увімкнення: ${this.formatTime(nextOn)}</div>
+          <div>Наступне вимкнення: ${loading ? '…' : this.formatTime(nextOff)}</div>
+          <div>Наступне увімкнення: ${loading ? '…' : this.formatTime(nextOn)}</div>
         </div>
+        ${loading ? this.renderLoadingLine(shownQueue) : this.renderUpdatedLine(entity)}
       </div>
     `;
   }
 
   buildPattern(periods) {
     const slots = Array(48).fill('1');
-    periods.forEach(period => {
-      // Використовуємо Math.floor для початку та Math.ceil для кінця,
-      // щоб правильно покрити періоди з хвилинами (наприклад, 14:30)
+    periods.forEach((period) => {
       const startHour = Number(period.start);
       let endHour = Number(period.end);
-
-      // Якщо endHour дорівнює 0 (опівночі), це означає кінець доби (24:00)
-      // Але якщо endHour == 12.0, це означає 12:00 (опівдень), а не опівночі
-      // Тому перевіряємо: якщо endHour == 0, то це опівночі (24:00)
-      // Якщо endHour >= 24, нормалізуємо до 24
-      if (endHour === 0) {
-        endHour = 24; // Опівночі = 24:00
-      } else if (endHour >= 24) {
-        endHour = 24; // Нормалізуємо до 24 годин
+      // end == 0 означає кінець доби (24:00)
+      if (endHour === 0 || endHour >= 24) {
+        endHour = 24;
       }
-
       const start = Math.max(0, Math.min(48, Math.floor(startHour * 2)));
-      // Для endHour == 24, Math.ceil(24 * 2) = 48, що правильно покриває всю добу
-      // Для endHour == 12.0, Math.ceil(12.0 * 2) = 24, що правильно покриває до 12:00
       const end = Math.max(start, Math.min(48, Math.ceil(endHour * 2)));
-
-      // Якщо end == 48, це означає кінець доби, тому покриваємо всі слоти до кінця
-      // Якщо end < 48, покриваємо слоти від start до end (не включно)
       for (let i = start; i < end; i += 1) {
         slots[i] = '0';
       }
@@ -329,7 +557,7 @@ class PowerOffTimelineCard extends HTMLElement {
     return slots.join('');
   }
 
-  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab) {
+  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false) {
     const SEGMENT_COLORS = {
       0: 'rgb(255 182 193)', // рожевий для відключення
       1: 'rgb(144 238 144)', // світло-зелений для світла
@@ -349,12 +577,10 @@ class PowerOffTimelineCard extends HTMLElement {
       const path = this.createSpiralPath(startRadius, endRadius, ARC_WIDTH, startAngle, endAngle);
       const slot = parseInt(pattern[i], 10);
       const color = SEGMENT_COLORS[slot] || SEGMENT_COLORS[1];
-      const isCurrent = selectedTab === 'today' && i === currentIndex;
-      // Для обох табів: минулі години мають opacity 0.65, майбутні - 1
-      // Для завтрашнього дня всі години в майбутньому, тому opacity = 1 для всіх
-      // Для сьогоднішнього: перевіряємо відносно поточного часу
-      // Використовуємо однакову логіку opacity для обох табів, щоб кольори виглядали однаково
-      const opacity = Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
+      const isCurrent = selectedTab === 'today' && i === currentIndex && !loading;
+      // Минулі години затемнюємо тільки для сьогодні — завтра ще все попереду
+      let opacity = selectedTab === 'today' && Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
+      if (loading) opacity = 0.3;
       const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || 'rgb(144 238 144)'}" stroke-width="5"` : '';
       return `<path d="${path}" class="spiral-segment" style="fill:${color};opacity:${opacity};" ${stroke}></path>`;
     }).join('');
@@ -374,6 +600,12 @@ class PowerOffTimelineCard extends HTMLElement {
 
     const offCount = (pattern.match(/0/g) || []).length / 2;
     const onCount = (pattern.match(/1/g) || []).length / 2;
+    const stats = loading
+      ? '<text class="spiral-center-text center-loading" x="0" y="45">оновлюю…</text>'
+      : `<text class="spiral-center-text center-stats" x="0" y="45">
+            <tspan>- ${offCount}</tspan>
+            <tspan dx="8">+ ${onCount}</tspan>
+          </text>`;
 
     return `
       <svg class="spiral-chart" viewBox="0 0 470 470" preserveAspectRatio="xMidYMid meet">
@@ -381,12 +613,9 @@ class PowerOffTimelineCard extends HTMLElement {
           ${centerCircle}
           ${segments}
           ${hourLabels}
-          <text class="spiral-center-text center-queue" x="0" y="-20">${queue} черга</text>
+          <text class="spiral-center-text center-queue" x="0" y="-20">${this.escape(queue)} черга</text>
           <text class="spiral-center-text center-date" x="0" y="10">${dateStr}</text>
-          <text class="spiral-center-text center-stats" x="0" y="45">
-            <tspan>- ${offCount}</tspan>
-            <tspan dx="8">+ ${onCount}</tspan>
-          </text>
+          ${stats}
         </g>
       </svg>
     `;
@@ -411,6 +640,100 @@ class PowerOffTimelineCard extends HTMLElement {
     `;
   }
 
+  renderViewBanner(queueObj, shownQueue) {
+    if (!queueObj || !this._homeQueue || shownQueue === this._homeQueue) {
+      return '';
+    }
+    return `
+      <div class="info-banner">
+        <span>Перегляд черги ${this.escape(shownQueue)} · ваша — ${this.escape(this._homeQueue)}</span>
+        <button type="button" data-action="go-home">Повернутись</button>
+      </div>`;
+  }
+
+  renderStaleBanner(entity) {
+    const attrs = entity.attributes || {};
+    if (!attrs.data_stale) {
+      return '';
+    }
+    const checked = this.formatTime(attrs.last_attempt_at);
+    const ok = this.formatDateTime(attrs.last_success_at);
+    return `
+      <div class="stale-banner" title="${this.escape(attrs.last_error || '')}">
+        <ha-icon icon="mdi:cloud-off-outline"></ha-icon>
+        <div>Сайт графіків зараз недоступний — показано збережений графік.
+          Остання вдала перевірка ${ok}, спроба о ${checked}.</div>
+      </div>`;
+  }
+
+  renderNoDataNote(entity) {
+    const attrs = entity.attributes || {};
+    const key = this.selectedTab === 'today' ? 'today_known' : 'tomorrow_known';
+    if (attrs[key] !== false) {
+      return '';
+    }
+    const text = this.selectedTab === 'today'
+      ? 'Графіка на сьогодні немає на сайті'
+      : 'Графік на завтра ще не опубліковано';
+    return `<div class="no-data-note">${text}</div>`;
+  }
+
+  renderLoadingLine(queue) {
+    return `
+      <div class="updated-line">
+        <span class="updated-main"><ha-icon icon="mdi:sync"></ha-icon><span>Завантажую графік черги ${this.escape(queue)}…</span></span>
+      </div>`;
+  }
+
+  /**
+   * «Графік оновлено …» — коли графік востаннє ЗМІНИВСЯ.
+   * Tooltip (наведення / фокус / тап) — коли сайт востаннє успішно відповів, остання спроба й помилка.
+   */
+  renderUpdatedLine(entity) {
+    const attrs = entity.attributes || {};
+    const changed = attrs.schedule_changed_at;
+    if (!changed) {
+      return '';
+    }
+    const rows = [
+      `<div class="tooltip-row ok"><ha-icon icon="mdi:cloud-check-outline"></ha-icon><span>Дані з сайту отримано: ${this.formatDateTime(attrs.last_success_at)}</span></div>`,
+    ];
+    if (attrs.last_attempt_at && attrs.last_attempt_at !== attrs.last_success_at) {
+      rows.push(`<div class="tooltip-row"><ha-icon icon="mdi:history"></ha-icon><span>Остання спроба: ${this.formatDateTime(attrs.last_attempt_at)}</span></div>`);
+    }
+    if (attrs.last_error) {
+      rows.push(`<div class="tooltip-row error"><ha-icon icon="mdi:alert-circle-outline"></ha-icon><span>${this.escape(attrs.last_error)}</span></div>`);
+    }
+    return `
+      <div class="updated-wrap${this._showDetails ? ' open' : ''}">
+        <button type="button" class="updated-line" data-action="toggle-details" aria-describedby="pot-updated-tooltip" aria-expanded="${this._showDetails}">
+          <span class="updated-main"><ha-icon icon="mdi:calendar-sync"></ha-icon><span>Графік оновлено ${this.formatDateTime(changed)}</span></span>
+        </button>
+        <div class="updated-tooltip" id="pot-updated-tooltip" role="tooltip">${rows.join('')}</div>
+      </div>`;
+  }
+
+  formatDateTime(value) {
+    if (!value) {
+      return '—';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    const time = this.formatTime(value);
+    const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+    if (days === 0) return `сьогодні о ${time}`;
+    if (days === 1) return `вчора о ${time}`;
+    const dm = date.toLocaleDateString('uk', {day: '2-digit', month: '2-digit'});
+    return `${dm} о ${time}`;
+  }
+
+  escape(text) {
+    return String(text).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  }
+
   formatTime(value) {
     if (!value) {
       return '—';
@@ -427,19 +750,19 @@ class PowerOffTimelineCard extends HTMLElement {
   }
 }
 
-customElements.define('poweroff-timeline-card', PowerOffTimelineCard);
-
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'poweroff-timeline-card',
-  name: 'Power Off Timeline Card',
-  description: 'Відображає графік відключень електроенергії',
-  preview: true,
-  documentationURL: 'https://github.com/OLDIN/ha-poltava-poweroff',
-});
-
-console.info(
-  '%c POWEROFF-TIMELINE-CARD %c Version 1.0.0 ',
-  'color: white; background: #3a3a38; font-weight: 700;',
-  'color: #3a3a38; background: white; font-weight: 700;'
-);
+if (!customElements.get('poweroff-timeline-card')) {
+  customElements.define('poweroff-timeline-card', PowerOffTimelineCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: 'poweroff-timeline-card',
+    name: 'Power Off Timeline Card',
+    description: 'Відображає графік відключень електроенергії',
+    preview: true,
+    documentationURL: 'https://github.com/OLDIN/ha-poltava-poweroff',
+  });
+  console.info(
+    `%c POWEROFF-TIMELINE-CARD %c Version ${CARD_VERSION} `,
+    'color: white; background: #3a3a38; font-weight: 700;',
+    'color: #3a3a38; background: white; font-weight: 700;'
+  );
+}

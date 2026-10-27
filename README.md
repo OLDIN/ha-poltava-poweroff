@@ -53,6 +53,50 @@ The integration automatically updates data every **5 minutes**. If you need to f
 service: poltava_poweroff.refresh
 ```
 
+### Viewing other queues (queue switcher)
+
+The card has a queue chip in its header (🏠 marks your queue). Pick any of 1.1…6.2 to see that queue's schedule; a blue banner reminds you that you're viewing someone else's queue and offers **Повернутись**.
+
+- The choice is stored in `select.poweroff_view_queue` and survives restarts. It is shared by everyone in the household.
+- Sensors, the calendar and your automations **always** follow the queue you configured — the switcher only changes what the card shows.
+- Only your queue and the last selected one are polled in the background; another queue is fetched the moment you select it (cached for 5 minutes, and kept on disk like your own).
+- The card finds the select automatically. To pin it explicitly use `queue_entity: select.poweroff_view_queue`, or hide the switcher with `queue_entity: false`.
+
+Hover (or tap on a phone) the "Графік оновлено …" line: a tooltip shows when data was last fetched from the site successfully (even if the schedule did not change), the last attempt and the error, if any.
+
+### When energy-ua.info is down
+
+The schedule is cached on disk (`.storage/poltava_poweroff.<entry_id>`) by **date**, so:
+
+- if the site is unreachable, returns an error page, a Cloudflare challenge or "Немає даних", the last good schedule stays visible — sensors do **not** go empty or `unavailable`;
+- after a Home Assistant restart the schedule is restored from cache even if the site is still down;
+- at midnight tomorrow's schedule becomes today's automatically, without contacting the site.
+
+The card shows an orange banner when it is displaying a cached schedule, and a "Графік оновлено …" line with the time the schedule last **changed**.
+
+| Entity / attribute | Meaning |
+|---|---|
+| `sensor.schedule_updated` | When the schedule on the site last changed (not just re-fetched) |
+| `sensor.schedule_last_fetch` (diagnostic) | Last successful request to the site |
+| `sensor.power_state` → `data_stale` | `true` while the last request failed and cached data is shown |
+| `sensor.power_state` → `last_error` | Why the last request failed |
+| `sensor.power_state` → `today_known` / `tomorrow_known` | Whether the site has published a schedule for that day |
+| `sensor.power_state` → `queue` | Your queue as shown on the site, e.g. `4.1` |
+
+Example — notify when the site has been unreachable for over an hour:
+
+```yaml
+trigger:
+  - platform: template
+    value_template: >
+      {{ state_attr('sensor.power_state', 'data_stale')
+         and (now() - states('sensor.schedule_last_fetch') | as_datetime) > timedelta(hours=1) }}
+```
+
+Integration also provides a calendar view of planned outages. You can add it to your dashboard as well via [Calendar card][calendar-card].
+
+![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)
+
 ### Lovelace “Snail” (Poweroff Timeline Card)
 
 Starting from the bundled `poweroff-timeline-card.js`, the Lovelace resource is registered automatically, so Home Assistant OS / Supervised requires no extra tweaks:

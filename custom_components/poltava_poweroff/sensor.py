@@ -9,9 +9,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import STATE_OFF, STATE_ON
 from .coordinator import PoltavaPowerOffCoordinator
@@ -49,11 +51,30 @@ SENSOR_TYPES: tuple[PoltavaPowerOffSensorDescription, ...] = (
         name="Next power on",
         val_func=lambda coordinator: coordinator.next_poweron,
     ),
+    PoltavaPowerOffSensorDescription(
+        key="schedule_updated",
+        icon="mdi:calendar-sync",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        name="Schedule updated",
+        val_func=lambda coordinator: coordinator.schedule_changed_at,
+    ),
+    PoltavaPowerOffSensorDescription(
+        key="last_fetch",
+        icon="mdi:cloud-check-outline",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        name="Schedule last fetch",
+        val_func=lambda coordinator: coordinator.last_success_at,
+    ),
 )
+
+# Нові сенсори-мітки часу не дублюють великі атрибути (менше записів у recorder).
+# Старі три сенсори лишають атрибути як були — на них можуть посилатися дашборди/автоматизації.
+NO_ATTRIBUTES_KEYS = {"schedule_updated", "last_fetch"}
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -85,35 +106,17 @@ class PoltavaPowerOffSensor(CoordinatorEntity[PoltavaPowerOffCoordinator], Senso
     @property
     def extra_state_attributes(self):
         """Return extra attributes."""
-        today_periods = []
-        for period in self.coordinator.today_periods:
-            today_periods.append({"start": period.start, "end": period.end})
+        if self.entity_description.key in NO_ATTRIBUTES_KEYS:
+            return None
+        attrs = self.coordinator.queue_attributes(self.coordinator.home)
 
-        tomorrow_periods = []
-        for period in self.coordinator.tomorrow_periods:
-            tomorrow_periods.append({"start": period.start, "end": period.end})
+        # poweroff_periods — для старих карток: сьогоднішні, а коли вони всі минули — завтрашні
+        now_dt = dt_util.now()
+        has_future_today = any(
+            period.to_datetime_period(now_dt.tzinfo)[1] > now_dt for period in self.coordinator.today_periods
+        )
+        active = attrs["poweroff_periods_today"]
+        if not has_future_today and attrs["poweroff_periods_tomorrow"]:
+            active = attrs["poweroff_periods_tomorrow"]
+        return {"poweroff_periods": active, **attrs}
 
-        # Для сумісності зі старою карткою - poweroff_periods містить сьогоднішні
-        # Але якщо сьогодні немає більше періодів, показуємо завтрашні
-        active_periods = today_periods
-        if not today_periods and tomorrow_periods:
-            # Перевіряємо, чи є ще сьогоднішні події в майбутньому
-            from homeassistant.util import dt as dt_util
-
-            now_dt = dt_util.now()
-            has_future_today = False
-            for period in self.coordinator.today_periods:
-                start, end = period.to_datetime_period(now_dt.tzinfo)
-                if end > now_dt:
-                    has_future_today = True
-                    break
-            if not has_future_today:
-                active_periods = tomorrow_periods
-
-        return {
-            "poweroff_periods": active_periods,  # Для сумісності
-            "poweroff_periods_today": today_periods,
-            "poweroff_periods_tomorrow": tomorrow_periods,
-            "next_off": self.coordinator.get_next_off_time(),
-            "next_on": self.coordinator.get_next_on_time(),
-        }

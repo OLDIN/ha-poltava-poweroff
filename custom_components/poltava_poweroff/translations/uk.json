@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Відключення світла — Полтава",
+        "description": "Оберіть вашу чергу відключень. Її можна знайти на energy-ua.info за адресою.",
+        "data": {
+          "poweroff_group": "Черга"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не вдалося з'єднатися з energy-ua.info. Спробуйте пізніше.",
+      "unknown": "Неочікувана помилка"
+    },
+    "abort": {
+      "already_configured": "Цю чергу вже додано"
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Оновити графік",
+      "description": "Завантажити графік відключень з energy-ua.info просто зараз."
+    }
+  }
+}

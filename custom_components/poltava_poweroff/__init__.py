@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -13,47 +14,75 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from .const import DOMAIN
 from .coordinator import PoltavaPowerOffCoordinator
 
-PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SELECT, Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
 
-# Схема для service
 SERVICE_REFRESH = "refresh"
-SERVICE_SCHEMA: vol.Schema = vol.Schema({})  # Порожня схема, service не потребує параметрів
+SERVICE_SCHEMA: vol.Schema = vol.Schema({})
+
+CARD_URL_BASE = "/local/poltava_poweroff"
+CARD_FILE = "poweroff-timeline-card.js"
+
+
+def _integration_version() -> str:
+    try:
+        return json.loads((Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))["version"]
+    except Exception:  # noqa: BLE001
+        return "0"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the component."""
-    # Реєструємо статичний шлях для custom card (async версія)
     from homeassistant.components.http import StaticPathConfig
-    import os
 
-    # Використовуємо абсолютний шлях до www директорії
-    integration_dir = os.path.dirname(os.path.dirname(__file__))
-    www_path = os.path.join(integration_dir, "poltava_poweroff", "www")
-    await hass.http.async_register_static_paths([StaticPathConfig("/local/poltava_poweroff", www_path, False)])
+    www_path = str(Path(__file__).parent / "www")
+    try:
+        await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL_BASE, www_path, False)])
+        version = await hass.async_add_executor_job(_integration_version)
+        await _async_register_card_resource(hass, f"{CARD_URL_BASE}/{CARD_FILE}?v={version}")
+    except Exception:
+        _LOGGER.debug("Card static path / resource registration skipped", exc_info=True)
 
-    _LOGGER.info(
-        "Custom card available at: /local/poltava_poweroff/poweroff-timeline-card.js\n"
-        "Add it manually: Settings → Dashboards → Resources → Add Resource"
-    )
-
-    # Реєструємо service для ручного оновлення
     async def async_handle_refresh(call: ServiceCall) -> None:
         """Handle refresh service call."""
         _LOGGER.info("Manual refresh requested via service")
         for entry in hass.config_entries.async_entries(DOMAIN):
-            coordinator: PoltavaPowerOffCoordinator = entry.runtime_data
-            await coordinator.async_request_refresh()
+            coordinator: PoltavaPowerOffCoordinator | None = getattr(entry, "runtime_data", None)
+            if coordinator is not None:
+                await coordinator.async_refresh()  # без debounce — ручний виклик
 
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, async_handle_refresh, schema=SERVICE_SCHEMA)
 
     return True
 
 
+async def _async_register_card_resource(hass: HomeAssistant, url: str) -> None:
+    """Зареєструвати картку як lovelace-ресурс (storage-режим) з ?v=<версія>.
+
+    Якщо ресурс уже доданий вручну — лише оновлюємо ?v=, щоб браузер не тримав стару версію картки.
+    """
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None) if lovelace else None
+    if resources is None or not hasattr(resources, "async_create_item"):
+        return  # YAML-режим ресурсів — нічого не чіпаємо
+    if not resources.loaded:
+        await resources.async_load()
+        resources.loaded = True
+    for item in resources.async_items():
+        existing = item.get("url", "")
+        if f"poltava_poweroff/{CARD_FILE}" in existing:
+            if existing != url:
+                await resources.async_update_item(item["id"], {"res_type": "module", "url": url})
+            return
+    await resources.async_create_item({"res_type": "module", "url": url})
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Poltava Power Offline from a config entry."""
 
     coordinator = PoltavaPowerOffCoordinator(hass, entry)
+    # Спершу піднімаємо збережений графік: якщо сайт зараз лежить — стартуємо з кешу, а не з порожнечі
+    await coordinator.async_load_cache()
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator

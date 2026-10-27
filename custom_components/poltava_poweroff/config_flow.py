@@ -6,20 +6,20 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DOMAIN, POWEROFF_GROUP_CONF, PowerOffGroup
+from .const import DOMAIN, POWEROFF_GROUP_CONF, PowerOffGroup, group_display
 from .energyua_scrapper import EnergyUaScrapper
 
 _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        vol.Required(POWEROFF_GROUP_CONF): vol.Coerce(PowerOffGroup),
+        # Випадний список «1.1 … 6.2» замість текстового поля; у даних лишається формат сайту «1-1»
+        vol.Required(POWEROFF_GROUP_CONF): vol.In({g.value: group_display(g.value) for g in PowerOffGroup}),
     }
 )
 
@@ -50,6 +50,8 @@ class PoltavaPowerOffConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         errors: dict[str, str] = {}
         if user_input is not None:
+            await self.async_set_unique_id(user_input[POWEROFF_GROUP_CONF])
+            self._abort_if_unique_id_configured()
             try:
                 info = await validate_input(self.hass, user_input)
             except CannotConnect:
@@ -58,7 +60,9 @@ class PoltavaPowerOffConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(title=info["title"], data=user_input)
+                return self.async_create_entry(
+                    title=f"{info['title']} {group_display(user_input[POWEROFF_GROUP_CONF])}", data=user_input
+                )
 
         return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors)
 

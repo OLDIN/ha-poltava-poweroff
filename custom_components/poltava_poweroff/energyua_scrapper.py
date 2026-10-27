@@ -9,12 +9,26 @@ import re
 import cloudscraper  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup, Tag
 
-from .const import PowerOffGroup
+from .const import BASE_URL, PowerOffGroup
 from .entities import PowerOffPeriod
 
 LOGGER = logging.getLogger(__name__)
 
-URL = "https://energy-ua.info/cherga/{}"
+URL = BASE_URL + "/cherga/{}"
+
+REQUEST_TIMEOUT = 30  # секунд
+
+# Маркери, за якими розпізнаємо «справжню» сторінку графіка energy-ua.
+# Якщо жодного немає (Cloudflare-челендж, сторінка техробіт, порожня відповідь) —
+# це помилка, а не «відключень немає».
+_PAGE_MARKERS = ("Графік відключень", "Періоди відключень", "ch_day_title", "scale_info_periods")
+
+
+class ScraperError(Exception):
+    """Сайт недоступний або повернув неочікувану сторінку."""
+
+
+DayPeriods = list[PowerOffPeriod] | None  # None = на сайті немає даних за цей день
 
 
 class EnergyUaScrapper:
@@ -42,7 +56,9 @@ class EnergyUaScrapper:
                 "Pragma": "no-cache",
                 "Expires": "0",
             }
-            response = await asyncio.to_thread(scraper.get, URL.format(self.group), headers=headers)
+            response = await asyncio.to_thread(
+                scraper.get, URL.format(self.group), headers=headers, timeout=REQUEST_TIMEOUT
+            )
             return response.status_code == 200
         except Exception:
             return False
@@ -64,12 +80,7 @@ class EnergyUaScrapper:
 
         return merged_periods
 
-    async def get_power_off_periods(self) -> tuple[list[PowerOffPeriod], list[PowerOffPeriod]]:
-        """Get power off periods from the website.
-
-        Returns:
-            Tuple of (today_periods, tomorrow_periods)
-        """
+    async def _fetch_page(self) -> str:
         scraper = await self._get_scraper()
         # Додаємо заголовки для запобігання кешування
         headers = {
@@ -77,8 +88,37 @@ class EnergyUaScrapper:
             "Pragma": "no-cache",
             "Expires": "0",
         }
-        response = await asyncio.to_thread(scraper.get, URL.format(self.group), headers=headers)
-        content = response.text
+        url = URL.format(self.group)
+        try:
+            response = await asyncio.to_thread(scraper.get, url, headers=headers, timeout=REQUEST_TIMEOUT)
+        except Exception as err:  # мережа, DNS, таймаут, cloudscraper-челендж
+            raise ScraperError(f"Request to {url} failed: {err}") from err
+
+        status = getattr(response, "status_code", None)
+        if status != 200:
+            raise ScraperError(f"{url} returned HTTP {status}")
+
+        content = response.text or ""
+        if not any(marker in content for marker in _PAGE_MARKERS):
+            raise ScraperError(f"{url} returned unexpected page ({len(content)} bytes)")
+        return content
+
+    async def get_power_off_periods(self) -> tuple[DayPeriods, DayPeriods]:
+        """Get power off periods from the website.
+
+        Returns:
+            Tuple of (today_periods, tomorrow_periods). Кожен елемент:
+              * list — сайт дав графік на цей день (порожній list = відключень немає);
+              * None — сайт не має даних на цей день (ще не опубліковано / «Немає даних»).
+
+        Raises:
+            ScraperError: сайт недоступний або сторінка не схожа на графік.
+        """
+        content = await self._fetch_page()
+        return self.parse_page(content)
+
+    def parse_page(self, content: str) -> tuple[DayPeriods, DayPeriods]:
+        """Розпарсити HTML сторінки черги."""
         soup = BeautifulSoup(content, "html.parser")
         today_results: list[PowerOffPeriod] = []
         tomorrow_results: list[PowerOffPeriod] = []
@@ -92,84 +132,74 @@ class EnergyUaScrapper:
             if not isinstance(scale_info_block, Tag):
                 continue
 
-            # Перевіряємо заголовок
             title = scale_info_block.find("h4", class_="scale_info_title")
             if not isinstance(title, Tag):
                 continue
 
             title_text = title.get_text().strip().lower()
-            # Парсимо блоки для сьогодні
             if "сьогодні" in title_text or "сегодня" in title_text:
                 periods = self._parse_periods_from_text_block(scale_info_block, today=True)
                 if periods:
                     today_results.extend(periods)
                     today_periods_found = True
-            # Парсимо блоки для завтра
-            elif "завтра" in title_text or "завтра" in title_text:
+            elif "завтра" in title_text:
                 periods = self._parse_periods_from_text_block(scale_info_block, today=False)
                 if periods:
                     tomorrow_results.extend(periods)
                     tomorrow_periods_found = True
 
-        # Якщо не знайшли періоди через scale_info_periods, використовуємо fallback
+        # Чи є на сторінці погодинна шкала для дня (означає, що графік на день опубліковано,
+        # навіть якщо в ньому немає жодного відключення).
+        today_scale_found = False
+        tomorrow_scale_found = False
+
         if not today_periods_found or not tomorrow_periods_found:
-            if not today_periods_found:
-                LOGGER.debug(
-                    "Не знайдено періодів для сьогодні через scale_info_periods, використовуємо fallback з scale_hours"
-                )
-            if not tomorrow_periods_found:
-                LOGGER.debug(
-                    "Не знайдено періодів для завтра через scale_info_periods, використовуємо fallback з scale_hours"
-                )
-            # Знаходимо всі заголовки ch_day_title та відповідні блоки scale_hours
             all_day_titles = soup.find_all("h4", class_="ch_day_title")
             LOGGER.debug("Знайдено %d заголовків ch_day_title", len(all_day_titles))
             for day_title in all_day_titles:
                 if not isinstance(day_title, Tag):
                     continue
                 title_text = day_title.get_text().strip().lower()
-                LOGGER.debug("Перевіряємо заголовок: %s", title_text)
-                # Шукаємо наступний блок scale_hours після цього заголовка
                 scale_hours_block = None
                 for sibling in day_title.next_siblings:
-                    if isinstance(sibling, Tag) and "scale_hours" in sibling.get("class", []):
+                    if not isinstance(sibling, Tag):
+                        continue
+                    if "scale_hours" in sibling.get("class", []):
                         scale_hours_block = sibling
                         break
+                    if "ch_day_title" in sibling.get("class", []):
+                        break  # дійшли до наступного дня — шкали для цього дня немає
 
-                if scale_hours_block:
-                    if "сьогодні" in title_text and not today_periods_found:
-                        LOGGER.debug("Знайдено блок scale_hours для сьогодні")
-                        scale_hours_el = scale_hours_block.find_all("div", class_="scale_hours_el")
-                        for item in scale_hours_el:
-                            if item.find("span", class_="hour_active"):
-                                start, end = self._parse_item(item)
-                                period = PowerOffPeriod(start, end, today=True)
-                                today_results.append(period)
-                                LOGGER.debug("Додано сьогоднішній період: %s-%s", start, end)
-                    elif "завтра" in title_text and not tomorrow_periods_found:
-                        LOGGER.debug("Знайдено блок scale_hours для завтра")
-                        scale_hours_el = scale_hours_block.find_all("div", class_="scale_hours_el")
-                        for item in scale_hours_el:
-                            if item.find("span", class_="hour_active"):
-                                start, end = self._parse_item(item)
-                                period = PowerOffPeriod(start, end, today=False)
-                                tomorrow_results.append(period)
-                                LOGGER.debug("Додано завтрашній період: %s-%s", start, end)
+                if not scale_hours_block:
+                    continue
 
-        # Об'єднуємо періоди окремо
-        today_results = self.merge_periods(today_results)
-        tomorrow_results = self.merge_periods(tomorrow_results)
+                is_today = "сьогодні" in title_text
+                is_tomorrow = "завтра" in title_text
+                if is_today:
+                    today_scale_found = True
+                if is_tomorrow:
+                    tomorrow_scale_found = True
 
-        # Логуємо результат для діагностики
-        LOGGER.debug(
-            "Парсинг завершено: %d сьогоднішніх, %d завтрашніх періодів", len(today_results), len(tomorrow_results)
+                if (is_today and not today_periods_found) or (is_tomorrow and not tomorrow_periods_found):
+                    target = today_results if is_today else tomorrow_results
+                    for item in scale_hours_block.find_all("div", class_="scale_hours_el"):
+                        if item.find("span", class_="hour_active"):
+                            start, end = self._parse_item(item)
+                            target.append(PowerOffPeriod(start, end, today=is_today))
+
+        today_final: DayPeriods = (
+            self.merge_periods(today_results) if (today_periods_found or today_scale_found) else None
         )
-        for period in today_results:
-            LOGGER.debug("Сьогоднішній період: %s-%s", period.start, period.end)
-        for period in tomorrow_results:
-            LOGGER.debug("Завтрашній період: %s-%s", period.start, period.end)
+        tomorrow_final: DayPeriods = (
+            self.merge_periods(tomorrow_results) if (tomorrow_periods_found or tomorrow_scale_found) else None
+        )
 
-        return today_results, tomorrow_results
+        LOGGER.debug(
+            "Парсинг завершено: сьогодні=%s, завтра=%s",
+            "немає даних" if today_final is None else len(today_final),
+            "немає даних" if tomorrow_final is None else len(tomorrow_final),
+        )
+        return today_final, tomorrow_final
 
     def _parse_periods_from_text_block(self, scale_info_block: Tag, today: bool) -> list[PowerOffPeriod]:
         """Parse periods from a specific scale_info_periods block."""
