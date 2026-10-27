@@ -164,9 +164,11 @@ const CARD_STYLES = `
   .center-stats tspan:last-child { fill: #65a46f; }
   .center-loading { font-size: 18px; font-weight: 500; }
 
-  .legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
+  .legend { display: flex; gap: 4px 18px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
+  .next-line { font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
+  .next-line b { font-weight: 600; color: var(--primary-text-color); }
 
   .info-banner, .stale-banner {
     display: flex;
@@ -530,10 +532,7 @@ class PowerOffTimelineCard extends HTMLElement {
             <span>Світло є</span>
           </div>
         </div>
-        <div class="legend">
-          <div>Наступне вимкнення: ${loading ? '…' : this.formatTime(nextOff)}</div>
-          <div>Наступне увімкнення: ${loading ? '…' : this.formatTime(nextOn)}</div>
-        </div>
+        <div class="next-line">${this.renderNextLine(nextOff, nextOn, loading)}</div>
         ${loading ? this.renderLoadingLine(shownQueue) : this.renderUpdatedLine(entity)}
       </div>
     `;
@@ -638,6 +637,39 @@ class PowerOffTimelineCard extends HTMLElement {
       L ${x3},${y3}
       A ${startRadius},${startRadius} 0 0 0 ${x1},${y1}
     `;
+  }
+
+  /**
+   * Один рядок замість двох:
+   *   «Наступне відключення: 09:00 – 11:00» — коли світло є;
+   *   «Світло з'явиться о 11:00» — коли його вже немає;
+   *   «завтра» перед часом, якщо подія не сьогодні.
+   */
+  renderNextLine(nextOff, nextOn, loading) {
+    if (loading) {
+      return 'Наступне відключення: …';
+    }
+    const off = nextOff ? new Date(nextOff) : null;
+    const on = nextOn ? new Date(nextOn) : null;
+    const valid = (d) => d && !Number.isNaN(d.getTime());
+    const when = (d) => `${this.isTomorrow(d) ? 'завтра ' : ''}${this.formatTime(d.toISOString())}`;
+    if (valid(on) && (!valid(off) || on < off)) {
+      return `Світло з'явиться о <b>${when(on)}</b>`;
+    }
+    if (valid(off) && valid(on)) {
+      const sameDay = off.toDateString() === on.toDateString();
+      return `Наступне відключення: <b>${when(off)} – ${sameDay ? this.formatTime(on.toISOString()) : when(on)}</b>`;
+    }
+    if (valid(off)) {
+      return `Наступне відключення: <b>${when(off)}</b>`;
+    }
+    return 'Найближчих відключень немає';
+  }
+
+  isTomorrow(date) {
+    const t = new Date();
+    t.setDate(t.getDate() + 1);
+    return date.toDateString() === t.toDateString();
   }
 
   renderViewBanner(queueObj, shownQueue) {

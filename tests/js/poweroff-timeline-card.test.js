@@ -228,10 +228,26 @@ describe('PowerOffTimelineCard', () => {
       expect(legendTexts.some(text => text.includes('Світло є'))).toBe(true);
     });
 
-    it('should render next off/on times', () => {
-      const infoLine = card.content.textContent;
-      expect(infoLine).toContain('Наступне вимкнення');
-      expect(infoLine).toContain('Наступне увімкнення');
+    it('should render next outage as one compact line', () => {
+      const line = card.content.querySelector('.next-line');
+      expect(line).not.toBeNull();
+      // next_off = +1 год, next_on = +2 год → «Наступне відключення: HH:MM – HH:MM»
+      expect(line.textContent).toMatch(/Наступне відключення: (завтра )?\d{2}:\d{2} – (завтра )?\d{2}:\d{2}/);
+      expect(card.content.textContent).not.toContain('Наступне увімкнення');
+    });
+
+    it('says when power returns if it is off now', () => {
+      const attrs = mockHass.states['sensor.power_state'].attributes;
+      attrs.next_on = new Date(Date.now() + 1800000).toISOString();
+      attrs.next_off = new Date(Date.now() + 7200000).toISOString();
+      card.hass = { states: { 'sensor.power_state': { ...mockHass.states['sensor.power_state'], attributes: { ...attrs } } } };
+      expect(card.content.querySelector('.next-line').textContent).toMatch(/Світло з'явиться о (завтра )?\d{2}:\d{2}/);
+    });
+
+    it('says there are no upcoming outages', () => {
+      const attrs = { ...mockHass.states['sensor.power_state'].attributes, next_on: null, next_off: null };
+      card.hass = { states: { 'sensor.power_state': { ...mockHass.states['sensor.power_state'], attributes: attrs } } };
+      expect(card.content.querySelector('.next-line').textContent).toBe('Найближчих відключень немає');
     });
   });
 
