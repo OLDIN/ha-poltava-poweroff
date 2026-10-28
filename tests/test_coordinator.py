@@ -161,3 +161,73 @@ async def test_view_queue_failure_does_not_break_home(hass: HomeAssistant) -> No
     await coord._async_update_data()  # не кидає
     assert not coord.is_stale
     assert coord.view.is_stale
+
+
+# ---------------------------------------------------------------- через північ
+
+async def _at(hass, freezer, when):
+    await hass.config.async_set_time_zone("Europe/Kyiv")
+    freezer.move_to(when)
+
+
+async def test_outage_across_midnight_next_on_is_after_midnight(hass: HomeAssistant, freezer) -> None:
+    """21:00–24:00 сьогодні + 00:00–02:00 завтра — одне відключення, світло о 02:00."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    await _at(hass, freezer, datetime(2026, 10, 28, 22, 0, tzinfo=kyiv))
+    coord = _make(hass)
+    coord.api.get_power_off_periods = AsyncMock(
+        return_value=([PowerOffPeriod(21, 0.0, True)], [PowerOffPeriod(0, 2, False), PowerOffPeriod(9, 11, False)])
+    )
+    await coord._async_update_data()
+    assert coord.current_state == "Power OFF"
+    assert coord.next_poweron == datetime(2026, 10, 29, 2, 0, tzinfo=kyiv)
+    assert coord.next_poweroff == datetime(2026, 10, 29, 9, 0, tzinfo=kyiv)
+    event = coord.get_current_or_next_event()
+    assert (event.start, event.end) == (datetime(2026, 10, 28, 21, 0, tzinfo=kyiv), datetime(2026, 10, 29, 2, 0, tzinfo=kyiv))
+
+
+async def test_after_midnight_outage_started_yesterday(hass: HomeAssistant, freezer) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    await _at(hass, freezer, datetime(2026, 10, 28, 23, 0, tzinfo=kyiv))
+    coord = _make(hass)
+    coord.api.get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(21, 0.0, True)], [PowerOffPeriod(0, 2, False)]))
+    await coord._async_update_data()
+    freezer.move_to(datetime(2026, 10, 29, 0, 30, tzinfo=kyiv))  # сайт уже не питаємо
+    assert coord.current_state == "Power OFF"
+    assert coord.next_poweron == datetime(2026, 10, 29, 2, 0, tzinfo=kyiv)
+
+
+async def test_calendar_returns_event_covering_whole_window(hass: HomeAssistant, freezer) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    await _at(hass, freezer, datetime(2026, 10, 28, 8, 0, tzinfo=kyiv))
+    coord = _make(hass)
+    coord.api.get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(9, 12, True)], None))
+    await coord._async_update_data()
+    window = datetime(2026, 10, 28, 10, 0, tzinfo=kyiv)
+    assert len(coord.get_events_between(window, window + timedelta(hours=1))) == 1
+    # до початку — календар показує найближче відключення
+    assert coord.get_current_or_next_event().start == datetime(2026, 10, 28, 9, 0, tzinfo=kyiv)
+    assert coord.get_event_at(dt_util.now()) is None
+
+
+async def test_dst_day_times_are_wall_clock(hass: HomeAssistant, freezer) -> None:
+    """25.10.2026 — перехід на зимовий час: 05:00 лишається 05:00 за київським часом."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    await _at(hass, freezer, datetime(2026, 10, 25, 1, 0, tzinfo=kyiv))
+    coord = _make(hass)
+    coord.api.get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(5, 7, True)], None))
+    await coord._async_update_data()
+    start = coord.next_poweroff
+    assert (start.hour, start.utcoffset()) == (5, timedelta(hours=2))

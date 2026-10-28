@@ -60,21 +60,25 @@ class EnergyUaScrapper:
                 scraper.get, URL.format(self.group), headers=headers, timeout=REQUEST_TIMEOUT
             )
             return response.status_code == 200
-        except Exception:
+        except Exception:  # noqa: BLE001 — будь-яка помилка тут означає «не вдалося з'єднатися»
             return False
 
     @staticmethod
     def merge_periods(periods: list[PowerOffPeriod]) -> list[PowerOffPeriod]:
+        """Злити сусідні/перекриті періоди. Кінець 0.0 означає 24:00 (північ наприкінці доби)."""
         if not periods:
             return []
 
-        periods.sort(key=lambda x: x.start)
+        def end_of(p: PowerOffPeriod) -> float:
+            return 24.0 if p.end == 0.0 and p.start > 0 else p.end
 
+        periods.sort(key=lambda x: x.start)
         merged_periods = [periods[0]]
         for current in periods[1:]:
             last = merged_periods[-1]
-            if current.start <= last.end:
-                last.end = max(last.end, current.end)
+            if current.start <= end_of(last):
+                new_end = max(end_of(last), end_of(current))
+                last.end = 0.0 if new_end >= 24.0 else new_end
                 continue
             merged_periods.append(current)
 
@@ -92,15 +96,19 @@ class EnergyUaScrapper:
         try:
             response = await asyncio.to_thread(scraper.get, url, headers=headers, timeout=REQUEST_TIMEOUT)
         except Exception as err:  # мережа, DNS, таймаут, cloudscraper-челендж
-            raise ScraperError(f"Request to {url} failed: {err}") from err
+            LOGGER.debug("Request to %s failed: %r", url, err)
+            kind = "таймаут" if "timeout" in type(err).__name__.lower() or "timed out" in str(err).lower() else "немає з'єднання"
+            raise ScraperError(f"Не вдалося з'єднатися з energy-ua.info ({kind})") from err
 
         status = getattr(response, "status_code", None)
         if status != 200:
-            raise ScraperError(f"{url} returned HTTP {status}")
+            LOGGER.debug("%s returned HTTP %s", url, status)
+            raise ScraperError(f"Сайт відповів помилкою HTTP {status}")
 
         content = response.text or ""
         if not any(marker in content for marker in _PAGE_MARKERS):
-            raise ScraperError(f"{url} returned unexpected page ({len(content)} bytes)")
+            LOGGER.debug("%s returned unexpected page (%d bytes): %.200s", url, len(content), content)
+            raise ScraperError("Сайт повернув сторінку без графіка (техроботи або захист від ботів)")
         return content
 
     async def get_power_off_periods(self) -> tuple[DayPeriods, DayPeriods]:

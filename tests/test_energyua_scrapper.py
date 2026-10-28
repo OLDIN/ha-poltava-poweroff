@@ -127,8 +127,12 @@ async def test_scrapper_raises_on_bad_page(response) -> None:
     """Сайт лежить / Cloudflare / техроботи → виняток, а не порожній графік."""
     from poltava_poweroff.energyua_scrapper import ScraperError
 
-    with _mock_scraper(lambda *a, **k: response), pytest.raises(ScraperError):
+    with _mock_scraper(lambda *a, **k: response), pytest.raises(ScraperError) as exc:
         await EnergyUaScrapper("1-1").get_power_off_periods()
+    # Повідомлення для людини (показується в картці): українською і без адреси сайту
+    assert "http://" not in str(exc.value)
+    assert "https://" not in str(exc.value)
+    assert str(exc.value).startswith(("Сайт відповів помилкою HTTP", "Сайт повернув сторінку без графіка"))
 
 
 @pytest.mark.asyncio
@@ -138,7 +142,7 @@ async def test_scrapper_raises_on_network_error() -> None:
     def boom(*a, **k):
         raise ConnectionError("Connection reset by peer")
 
-    with _mock_scraper(boom), pytest.raises(ScraperError):
+    with _mock_scraper(boom), pytest.raises(ScraperError, match="Не вдалося з'єднатися з energy-ua.info"):
         await EnergyUaScrapper("1-1").get_power_off_periods()
 
 
@@ -150,3 +154,18 @@ def test_published_day_without_outages_is_empty_list() -> None:
     today, tomorrow = EnergyUaScrapper("1-2").parse_page(html)
     assert today == []
     assert tomorrow is None
+
+
+@pytest.mark.parametrize(
+    ("periods", "expected"),
+    [
+        ([PowerOffPeriod(22, 23, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(22, 0.0, True)]),
+        ([PowerOffPeriod(20, 22, True), PowerOffPeriod(22, 0.0, True)], [PowerOffPeriod(20, 0.0, True)]),
+        ([PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)]),
+        ([PowerOffPeriod(8, 9, True), PowerOffPeriod(9, 10, True), PowerOffPeriod(12, 13, True)],
+         [PowerOffPeriod(8, 10, True), PowerOffPeriod(12, 13, True)]),
+    ],
+)
+def test_merge_periods_keeps_hour_before_midnight(periods, expected) -> None:
+    """Погодинна шкала: 22–23 + 23–00 мало б бути 22–00, а не обрізатися до 22–23."""
+    assert EnergyUaScrapper.merge_periods(periods) == expected

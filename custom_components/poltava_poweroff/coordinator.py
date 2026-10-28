@@ -363,22 +363,41 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     # --------------------------------------------------------- next on / off
 
+    @staticmethod
+    def intervals(state: QueueState) -> list[tuple[datetime, datetime]]:
+        """Відключення як абсолютні проміжки за вчора/сьогодні/завтра, злиті через північ.
+
+        «сьогодні 21:00–24:00» + «завтра 00:00–02:00» → один проміжок 21:00–02:00, тож
+        «світло з'явиться» = 02:00, а не 00:00. Час рахується від локальної півночі —
+        коректно і в дні переходу на літній/зимовий час.
+        """
+        today = dt_util.now().date()
+        raw: list[tuple[datetime, datetime]] = []
+        for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
+            midnight = dt_util.start_of_local_day(day)
+            for start, end in state.schedule.get(day.isoformat(), []):
+                end_h = 24.0 if float(end) == 0.0 or float(end) < float(start) else float(end)
+                raw.append((midnight + timedelta(hours=float(start)), midnight + timedelta(hours=end_h)))
+        raw.sort()
+        merged: list[tuple[datetime, datetime]] = []
+        for start, end in raw:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
     def _next_change(self, state: QueueState, on: bool) -> datetime | None:
         """Наступне увімкнення (on=True) або вимкнення для черги."""
         now = dt_util.now()
-        today_events = []
-        for period in state.today_periods:
-            start, end = period.to_datetime_period(now.tzinfo)
-            if start > now or end > now:
-                today_events.append((start, end))
-        dts = sorted(e if on else s for s, e in today_events)
-        for dt in dts:
-            if dt > now:
-                return dt
-
-        tomorrow = [period.to_datetime_period(now.tzinfo) for period in state.tomorrow_periods]
-        dts = sorted(e if on else s for s, e in tomorrow)
-        return dts[0] if dts else None
+        for start, end in self.intervals(state):
+            if end <= now:
+                continue
+            if on:
+                return end  # кінець поточного або наступного відключення
+            if start > now:
+                return start  # початок наступного (поточне вже триває — пропускаємо)
+        return None
 
     @property
     def next_poweroff(self) -> datetime | None:
@@ -396,22 +415,27 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         return STATE_OFF if self.get_event_at(dt_util.now()) else STATE_ON
 
     def get_event_at(self, at: datetime) -> CalendarEvent | None:
-        """Get the current event."""
-        for period in self.today_periods:
-            start, end = period.to_datetime_period(at.tzinfo)
-            # start <= at < end: коли at == end, подія вже не активна
+        """Відключення, що триває в момент `at` (кінець не включно)."""
+        for start, end in self.intervals(self.home):
             if start <= at < end:
                 return self._get_calendar_event(start, end)
         return None
 
+    def get_current_or_next_event(self) -> CalendarEvent | None:
+        """Поточне або найближче майбутнє відключення (так HA очікує від CalendarEntity.event)."""
+        now = dt_util.now()
+        for start, end in self.intervals(self.home):
+            if end > now:
+                return self._get_calendar_event(start, end)
+        return None
+
     def get_events_between(self, start_date: datetime, end_date: datetime) -> list[CalendarEvent]:
-        """Get all events."""
-        events = []
-        for period in self.periods:
-            start, end = period.to_datetime_period(start_date.tzinfo)
-            if start_date <= start <= end_date or start_date <= end <= end_date:
-                events.append(self._get_calendar_event(start, end))
-        return events
+        """Усі відключення, що перетинаються з вікном (і ті, що накривають його повністю)."""
+        return [
+            self._get_calendar_event(start, end)
+            for start, end in self.intervals(self.home)
+            if start < end_date and end > start_date
+        ]
 
     def _get_calendar_event(self, start: datetime, end: datetime) -> CalendarEvent:
         return CalendarEvent(start=start, end=end, summary=STATE_OFF)

@@ -3,12 +3,15 @@
 import datetime
 import logging
 
-from homeassistant.components.calendar import CalendarEntity, CalendarEntityDescription, CalendarEvent
+from homeassistant.components.calendar import (
+    CalendarEntity,
+    CalendarEntityDescription,
+    CalendarEvent,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .coordinator import PoltavaPowerOffCoordinator
 
@@ -16,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -47,13 +50,11 @@ class PoltavaPowerOffCalendar(CoordinatorEntity[PoltavaPowerOffCoordinator], Cal
     @property
     def event(self) -> CalendarEvent | None:
         """Return the current or next upcoming event or None."""
-        now = dt_util.now()
-        LOGGER.debug("Getting current event for %s", now)
-        return self.coordinator.get_event_at(now)
+        return self.coordinator.get_current_or_next_event()
 
     async def async_get_events(
         self,
-        hass: HomeAssistant,  # noqa: ARG002
+        hass: HomeAssistant,
         start_date: datetime.datetime,
         end_date: datetime.datetime,
     ) -> list[CalendarEvent]:
