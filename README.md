@@ -226,6 +226,27 @@ rm tests/js/__snapshots__/*.png
 npm test
 ```
 
+### Continuous Integration
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`:
+
+| Job | What it checks |
+|---|---|
+| **Lint (pre-commit, mypy)** | The same pre-commit hooks as locally (ruff, ruff-format, whitespace, YAML) and mypy |
+| **Python tests** | `pytest` with coverage against a real Home Assistant core |
+| **Card tests (vitest + snapshots)** | `npm test`; on failure the snapshot diffs are uploaded as an artifact |
+| **hassfest (Home Assistant)** | Official validation of `manifest.json`, translations, services |
+| **HACS validation** | Repository is valid for HACS (needs a repo description, topics and enabled Issues) |
+
+If the card snapshots differ only because CI renders with another Chromium build, run the workflow manually (**Actions → CI → Run workflow**, tick *update-snapshots*) and commit the PNGs from the `snapshots` artifact.
+
+**Protecting `main`** (Settings → Rules → Rulesets → New branch ruleset, target `main`):
+- *Require a pull request before merging* — with 0 required approvals for a solo maintainer (GitHub doesn't let you approve your own PR), or 1 approval plus yourself in the bypass list;
+- *Require status checks to pass* — select the five jobs above;
+- *Block force pushes* and *Restrict deletions*.
+
+With `main` protected, release from a PR: bump the version in the branch (`python scripts/bump_version.py patch --notes`, commit), merge, then tag the merge commit and create the release (`git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin vX.Y.Z && gh release create vX.Y.Z --notes-file RELEASE_NOTES_X.Y.Z.md`).
+
 ### Version Management
 
 For developers, use the automated version bump script for easy releases:
