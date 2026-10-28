@@ -16,8 +16,8 @@ python scripts/bump_version.py patch --commit
 
 ### Full automated release
 ```bash
-python scripts/bump_version.py patch --push --notes
-# Everything done: version updated, committed, tagged, pushed, notes generated
+python scripts/bump_version.py patch --push --notes --release
+# Everything done: version updated, committed, tagged, pushed, notes generated, GitHub Release created
 ```
 
 ## Command Options
@@ -27,6 +27,7 @@ python scripts/bump_version.py patch --push --notes
 | `--commit` | `-c` | Automatically commit changes and create git tag |
 | `--push` | `-p` | Push commits and tags to GitHub (implies `--commit`) |
 | `--notes` | `-n` | Generate release notes from commit messages |
+| `--release` | `-r` | Create a GitHub Release from the notes (requires `gh` CLI, `--push` and `--notes`) |
 
 ## Version Types
 
@@ -100,14 +101,12 @@ python scripts/bump_version.py minor --push --notes
 
 3. **Release**
    ```bash
-   python scripts/bump_version.py patch -p -n
+   python scripts/bump_version.py patch -p -n -r
    ```
 
-4. **Create GitHub Release** (manual step)
-   - Go to: https://github.com/OLDIN/ha-poltava-poweroff/releases/new
-   - Select tag: `v0.2.7`
-   - Copy content from `RELEASE_NOTES_0.2.7.md`
-   - Publish release
+4. **Create GitHub Release**
+   - Automatically: add `-r` in step 3 (`python scripts/bump_version.py patch -p -n -r`, needs `gh auth login`)
+   - Or manually: `gh release create v0.2.7 --title "Release 0.2.7" --notes-file RELEASE_NOTES_0.2.7.md`
 
 5. **HACS will detect new version**
    - Users will see `v0.2.7` instead of commit hash

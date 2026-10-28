@@ -13,6 +13,7 @@ storage.mkdir(parents=True, exist_ok=True)
 
 cards = [
     {"type": "custom:poweroff-timeline-card", "entity": "sensor.power_state"},
+    {"type": "calendar", "initial_view": "listWeek", "entities": ["calendar.poltava_poweroff_calendar"]},
     {
         "type": "entities",
         "title": "Сенсори інтеграції",

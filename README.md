@@ -4,13 +4,13 @@
 
 # ⚡️ Home Assistant Poltava PowerOff
 
-An integration for electricity shutdown schedules of [PoltavaOblEnergo](poltavaoblenergo). Based on data from [EnergyUA][energyua].
+An integration for electricity shutdown schedules of [PoltavaOblEnergo][poltavaoblenergo]. Based on data from [EnergyUA][energyua].
 
-This integration for [Home Assistant][home-assistant] provides information about planned electricity shutdowns of [PoltavaOblEnergo](poltavaoblenergo) in Poltava oblast:
+This integration for [Home Assistant][home-assistant] provides information about planned electricity shutdowns of [PoltavaOblEnergo][poltavaoblenergo] in Poltava oblast:
 calendar of planned shutdowns, time sensors for the next planned power on and off events. It is based on messages posted by a community
 driven project [EnergyUA][energyua].
 
-**💡 Note:** This project is not affiliated with [EnergyUA][energyua] or [PoltavaOblEnergo](poltavaoblenergo) in any way. This integration is developed by an individual.
+**💡 Note:** This project is not affiliated with [EnergyUA][energyua] or [PoltavaOblEnergo][poltavaoblenergo] in any way. This integration is developed by an individual.
 Provided data may be incorrect or misleading, follow the official channels for reliable information.
 
 > This integration is inspired by [ha-yasno-outages](https://github.com/denysdovhan/ha-yasno-outages) by [Denys Dovhan](https://github.com/denysdovhan).
@@ -27,17 +27,31 @@ If it doesn't work, adding this repository to HACS manually by adding this URL:
 1. Click **Add**
 1. Paste `https://github.com/OLDIN/ha-poltava-poweroff` into the **URL** field
 1. Chose **Integration** as a **Category**
-1. **Poltava PowerOff** will appear in the list of available integrations. Install it normally.
+1. **Poltava Power Offline** will appear in the list of available integrations. Install it normally.
 
 ## Usage
 
-This integration is configurable via UI. On **Devices and Services** page, click **Add Integration** and search for **Poltava PowerOff**.
+This integration is configurable via UI. On **Settings → Devices & Services** page, click **Add Integration** and search for **Poltava Power Offline**.
 
-Find your group by visiting [EnergyUA][energyua] website and typing your address in the search bar. Select your group in the configuration.
+Find your queue (1.1 … 6.2) on the [EnergyUA][energyua] website by typing your address, then pick it from the dropdown. The same queue can be added only once.
 
-Then you can add the integration to your dashboard and see the information about the next planned outages.
+![Outage card](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card.png)
 
-![Sensors](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_sensor.png?raw=true)
+### Entities
+
+| Entity | Description |
+|---|---|
+| `sensor.power_state` | `Power ON` / `Power OFF` right now, by the schedule. Attributes: today's and tomorrow's periods, `next_off`, `next_on`, `queue`, freshness flags (see below) |
+| `sensor.next_power_off` | When the next outage starts |
+| `sensor.next_power_on` | When power returns (end of the current or next outage) |
+| `sensor.schedule_updated` | When the schedule on the site last **changed** |
+| `sensor.schedule_last_fetch` | Diagnostic: last successful request to the site |
+| `select.poweroff_view_queue` | Which queue the card shows (see [queue switcher](#viewing-other-queues-queue-switcher)) |
+| `calendar.poltava_poweroff_calendar` | Planned outages as calendar events |
+
+An outage that crosses midnight (e.g. 21:00–24:00 today and 00:00–02:00 tomorrow) is treated as one outage: `next_power_on` is 02:00, not 00:00.
+
+![Sensors](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/sensors.png)
 
 ### Manual Data Refresh
 
@@ -62,7 +76,7 @@ The card has a queue chip in its header (🏠 marks your queue). Pick any of 1.1
 - Only your queue and the last selected one are polled in the background; another queue is fetched the moment you select it (cached for 5 minutes, and kept on disk like your own).
 - The card finds the select automatically. To pin it explicitly use `queue_entity: select.poweroff_view_queue`, or hide the switcher with `queue_entity: false`.
 
-Hover (or tap on a phone) the "Графік оновлено …" line: a tooltip shows when data was last fetched from the site successfully (even if the schedule did not change), the last attempt and the error, if any.
+![Queue switcher](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_queue_switcher.png)
 
 ### When energy-ua.info is down
 
@@ -72,14 +86,16 @@ The schedule is cached on disk (`.storage/poltava_poweroff.<entry_id>`) by **dat
 - after a Home Assistant restart the schedule is restored from cache even if the site is still down;
 - at midnight tomorrow's schedule becomes today's automatically, without contacting the site.
 
-The card shows an orange banner when it is displaying a cached schedule, and a "Графік оновлено …" line with the time the schedule last **changed**.
+The card shows an orange banner when it is displaying a cached schedule, and a "Графік оновлено …" line with the time the schedule last **changed**. Hover it (or tap on a phone) to see when the site was last checked successfully and why the last attempt failed.
+
+![Site is down](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_site_down.png)
 
 | Entity / attribute | Meaning |
 |---|---|
 | `sensor.schedule_updated` | When the schedule on the site last changed (not just re-fetched) |
 | `sensor.schedule_last_fetch` (diagnostic) | Last successful request to the site |
 | `sensor.power_state` → `data_stale` | `true` while the last request failed and cached data is shown |
-| `sensor.power_state` → `last_error` | Why the last request failed |
+| `sensor.power_state` → `last_error` | Why the last request failed (human-readable, e.g. `Сайт відповів помилкою HTTP 502`) |
 | `sensor.power_state` → `today_known` / `tomorrow_known` | Whether the site has published a schedule for that day |
 | `sensor.power_state` → `queue` | Your queue as shown on the site, e.g. `4.1` |
 
@@ -95,28 +111,30 @@ trigger:
 
 Integration also provides a calendar view of planned outages. You can add it to your dashboard as well via [Calendar card][calendar-card].
 
-![Calendar](https://github.com/OLDIN/ha-poltava-poweroff/blob/827c15582bb64c70568f6f7b322e926feeaa2592/pics/example_calendar.png?raw=true)
+![Calendar](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/calendar.png)
 
 ### Lovelace “Snail” (Poweroff Timeline Card)
 
-Starting from the bundled `poweroff-timeline-card.js`, the Lovelace resource is registered automatically, so Home Assistant OS / Supervised requires no extra tweaks:
+The card is bundled with the integration and registered as a Lovelace resource automatically (dashboards in the default storage mode), with `?v=<version>` so browsers pick up new versions after an update.
 
-1. Go to **Settings → Devices & Services**, add **Poltava PowerOff**, and select your queue.
-2. Click the badge below (or copy the link) to open Home Assistant’s card editor with a pre-filled configuration. The only thing you’ll need to adjust is the entity ID if it differs from `sensor.power_state`.
+1. Go to **Settings → Devices & Services**, add **Poltava Power Offline**, and select your queue.
+2. Click the badge below to open Home Assistant’s card editor with a pre-filled configuration.
 
-[![Add Lovelace Card via My Home Assistant](https://my.home-assistant.io/badges/lovelace_card.svg)](https://my.home-assistant.io/redirect/lovelace_card/?config=%7B%22type%22%3A%22custom%3Apoweroff-timeline-card%22%2C%22entity%22%3A%22sensor.power_state%22%2C%22title%22%3A%22Outages%20Today%22%7D)
+[![Add Lovelace Card via My Home Assistant](https://my.home-assistant.io/badges/lovelace_card.svg)](https://my.home-assistant.io/redirect/lovelace_card/?config=%7B%22type%22%3A%22custom%3Apoweroff-timeline-card%22%2C%22entity%22%3A%22sensor.power_state%22%7D)
 
-3. Alternatively, open your Lovelace dashboard and choose **Edit → Add card → Custom: Power Off Timeline Card** (if the GUI does not list custom cards, click **Manual** and paste the snippet below):
+3. Alternatively, open your dashboard and choose **Edit → Add card → Custom: Power Off Timeline Card** (or **Manual** and paste):
 
 ```yaml
 type: custom:poweroff-timeline-card
-entity: sensor.power_state  # replace with your sensor.<id>
-title: Outages Today
+entity: sensor.power_state          # required
+# queue_entity: select.poweroff_view_queue   # optional: found automatically; `false` hides the queue switcher
 ```
 
-4. Reload the dashboard (hard refresh if needed) and the spiral card will appear. Inside the devcontainer ensure the guard script has already started Home Assistant, otherwise Lovelace cannot load `/local/poltava_poweroff/poweroff-timeline-card.js`.
+4. Reload the dashboard (hard refresh if needed).
 
-> The resource lives in `custom_components/poltava_poweroff/www`. If you run bare Core without Supervisor, add `/local/poltava_poweroff/poweroff-timeline-card.js` under **Settings → Dashboards → Resources** manually.
+The card uses its own font (Inter, bundled in `www/fonts/`), so it looks the same on every device and works offline.
+
+> If your dashboards use YAML mode for resources, add `/local/poltava_poweroff/poweroff-timeline-card.js` (type: module) to `lovelace: resources:` yourself.
 
 ## Dev Container workflow
 
@@ -132,39 +150,21 @@ For local development we ship a ready-to-go [VS Code Dev Container](.devcontaine
 
 ### Running Tests
 
-To run tests, first install the dependencies:
+Python tests run against a real Home Assistant core (`pytest-homeassistant-custom-component`). Dependency versions are pinned in `requirements.txt` (Python 3.13):
 
 ```bash
-# Install all dependencies (including Home Assistant)
-pip install -r requirements.txt
+pip install -r requirements.txt     # or: scripts/setup_dev_env.sh (creates .venv-ha)
 
-# Or only test dependencies (if Home Assistant is already installed)
-pip install pytest pytest-asyncio aioresponses beautifulsoup4 cloudscraper voluptuous
-```
-
-After that, you can run the tests:
-
-```bash
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run a specific test file
-pytest tests/test_energyua_scrapper.py
-
-# Run a specific test case
-pytest tests/test_energyua_scrapper.py::test_energyua_scrapper -v
-
-# Run with code coverage (if pytest-cov is installed)
+pytest                                              # all tests
+pytest tests/test_coordinator.py -v                 # one file
 pytest --cov=custom_components/poltava_poweroff --cov-report=html
 ```
 
+**What is covered:** page parsing and site failures (HTTP errors, Cloudflare/maintenance pages, "Немає даних"), the on-disk cache and restarts, midnight rollover and outages crossing midnight, DST days, the queue switcher, the config flow, and a full integration setup.
+
 **Notes:**
-- The pytest configuration is in `pytest.ini` and automatically adds `custom_components` to PYTHONPATH for correct imports
-- Tests require Home Assistant for correct module imports
-- If you use anaconda/miniconda, make sure to install dependencies in the correct environment
+- `pytest.ini` adds `custom_components` and the repo root to `PYTHONPATH`
+- The minimum supported Home Assistant version is in `hacs.json` (tests also pass on 2024.11)
 
 ### Local Home Assistant with a mock energy-ua (UI + screenshots)
 
@@ -179,6 +179,7 @@ scripts/dev_ha_ui.sh mode nodata  # "Немає даних" — known days are k
 scripts/dev_ha_ui.sh mode ok
 scripts/dev_ha_ui.sh restart      # restart HA only — schedule must come back from cache
 scripts/dev_ha_ui.sh shot site_down   # screenshots/site_down.png (full dashboard)
+scripts/dev_ha_ui.sh readme       # re-take the README screenshots in pics/
 scripts/dev_ha_ui.sh down
 ```
 
@@ -207,10 +208,12 @@ npm run test:ui
 
 **JavaScript Test Coverage:**
 - Component initialization and configuration
-- UI rendering (spiral chart, legend, buttons)
-- Tab switching (today/tomorrow)
+- UI rendering (spiral chart, legend, next-outage line, buttons)
+- Tab switching (today/tomorrow) and keeping a manual choice
 - Pattern building for power off periods
-- Time formatting
+- Queue switcher (select entity discovery, menu, loading state, "Повернутись")
+- Cached-schedule banner and the "Графік оновлено" tooltip
+- Bundled font, re-render only on own entity changes
 - Edge cases (missing entities, empty periods)
 - **Image snapshots** - Visual regression testing with PNG images
 
@@ -228,8 +231,8 @@ npm test
 For developers, use the automated version bump script for easy releases:
 
 ```bash
-# Quick automated release (recommended for maintainers)
-python scripts/bump_version.py patch --push --notes
+# Fully automated release: commit, tag, push, GitHub Release
+python scripts/bump_version.py patch -p -n -r
 
 # Semi-automated (commit & tag, manual push)
 python scripts/bump_version.py patch --commit
@@ -245,7 +248,8 @@ git push origin main --tags
 **Options:**
 - `-c, --commit`: Automatically commit changes and create git tag
 - `-p, --push`: Push commits and tags to GitHub (implies `--commit`)
-- `-n, --notes`: Generate release notes from commit messages
+- `-n, --notes`: Generate release notes from commit messages (`RELEASE_NOTES_X.Y.Z.md`)
+- `-r, --release`: Also create a GitHub Release from those notes (needs `gh`, used with `-p -n`)
 
 See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for detailed documentation.
 
@@ -262,7 +266,7 @@ This integration uses [semantic versioning](https://semver.org/) (MAJOR.MINOR.PA
 #### Method 1: Update via HACS (Recommended)
 
 1. Go to **HACS** → **Integrations**
-2. Find **Poltava PowerOff** in the list
+2. Find **Poltava Power Offline** in the list
 3. If an update is available, you'll see an **Update** button (or a version badge showing available update)
 4. Click **Update** button
 5. Wait for the update to complete
@@ -272,32 +276,20 @@ This integration uses [semantic versioning](https://semver.org/) (MAJOR.MINOR.PA
 
 If you installed the integration manually (not via HACS):
 
-1. **SSH into your Home Assistant OS** or use the **Terminal** add-on
-2. Navigate to the custom components directory:
-   ```bash
-   cd /config/custom_components/poltava_poweroff
-   ```
-3. Pull the latest changes:
-   ```bash
-   git pull origin main
-   ```
-   Or if you need to update to a specific version:
-   ```bash
-   git fetch --tags
-   git checkout v0.1.0  # Replace with the version you want
-   ```
-4. **Restart Home Assistant** (Settings → System → Restart)
+1. Download the release archive from [GitHub Releases](https://github.com/OLDIN/ha-poltava-poweroff/releases) (or `git clone` the repository anywhere on your computer)
+2. Replace the folder `/config/custom_components/poltava_poweroff` with `custom_components/poltava_poweroff` from the archive (e.g. via the **Samba share** or **File editor** add-on)
+3. **Restart Home Assistant** (Settings → System → Restart)
 
 #### Method 3: Reinstall via HACS
 
 If the update doesn't appear or you have issues:
 
 1. Go to **HACS** → **Integrations**
-2. Find **Poltava PowerOff**
+2. Find **Poltava Power Offline**
 3. Click the **...** (three dots) menu → **Redownload**
 4. **Restart Home Assistant**
 
-**Note:** After updating, check the integration version in **Settings → Devices & Services → Poltava PowerOff** → **...** → **System options** to verify the update was successful.
+**Note:** After updating, the installed version is shown in **HACS → Poltava Power Offline**. If the card still looks old, hard-refresh the browser.
 
 ### For Developers
 
@@ -355,5 +347,3 @@ The script will:
 [hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=OLDIN&repository=ha-poltava-poweroff&category=integration
 [hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
 [calendar-card]: https://www.home-assistant.io/dashboards/calendar/
-
-ha-yasno-outages

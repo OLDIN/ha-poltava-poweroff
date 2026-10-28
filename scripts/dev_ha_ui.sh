@@ -9,6 +9,7 @@
 #   scripts/dev_ha_ui.sh restart            — перезапустити лише HA (перевірка кешу графіка)
 #   scripts/dev_ha_ui.sh show               — стан сенсорів
 #   scripts/dev_ha_ui.sh shot [name]        — скріншот дашборда → screenshots/<name>.png
+#   scripts/dev_ha_ui.sh readme             — перезняти скріни для README → pics/*.png
 #   scripts/dev_ha_ui.sh down               — зупинити
 #
 # Порт 8124 обрано, щоб не конфліктувати з ha-silpo (8123).
@@ -113,6 +114,10 @@ cmd_shot() {
   "$VENV/python" scripts/screenshot.py "$BASE" "$(cat "$CFG/.ha_token")" "screenshots/${1:-dashboard}.png"
 }
 
+cmd_readme() {
+  "$VENV/python" scripts/readme_screenshots.py "$BASE" "$(cat "$CFG/.ha_token")" "$MOCK" pics
+}
+
 cmd_down() {
   pkill -TERM -f "hass --config $CFG" 2>/dev/null || true
   pkill -TERM -f "scripts/mock_energyua.py" 2>/dev/null || true
@@ -130,6 +135,7 @@ case "${1:-up}" in
   restart) cmd_restart ;;
   show) cmd_show ;;
   shot) cmd_shot "${2:-dashboard}" ;;
+  readme) cmd_readme ;;
   down) cmd_down ;;
-  *) echo "usage: $0 {up|mode <m>|refresh|restart|show|shot [name]|down}"; exit 1 ;;
+  *) echo "usage: $0 {up|mode <m>|refresh|restart|show|shot [name]|readme|down}"; exit 1 ;;
 esac
