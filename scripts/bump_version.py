@@ -6,9 +6,10 @@ Two steps, matching the PR-based flow:
 1. ``prepare`` (default): on a branch, bump ``manifest.json``, generate
    ``RELEASE_NOTES_X.Y.Z.md`` and commit. ``--pr`` also pushes the branch and
    opens a pull request. Nothing is ever pushed to ``main``.
-2. ``release``: after the PR is merged, switch to ``main``, fast-forward it,
-   tag the merged commit with the manifest version, push only the tag and
-   create the GitHub Release from the notes file.
+2. After the PR is merged, ``.github/workflows/release.yml`` tags the merged
+   commit and publishes the GitHub Release. ``release`` does the same locally
+   (fast-forward ``main``, tag, push only the tag, ``gh release create``) and
+   is the fallback when the workflow is not available.
 
 Run without arguments for usage.
 """
@@ -235,8 +236,8 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             write_notes(new_version)
 
     if not commit:
-        print("\n💡 Next: review the diff, commit it, open a PR, and after the merge run:")
-        print("   python scripts/bump_version.py release")
+        print("\n💡 Next: review the diff, commit it and open a PR. After the merge the")
+        print("   Release workflow publishes it (fallback: python scripts/bump_version.py release)")
         return
 
     execute(["git", "add", str(MANIFEST_PATH), str(notes_path(new_version))])
@@ -264,10 +265,10 @@ def cmd_prepare(args: argparse.Namespace) -> None:
                 str(notes_path(new_version)),
             ]
         )
-        print("\n✅ PR opened. Merge it once CI is green, then run:")
+        print("\n✅ PR opened. Merge it once CI is green; the Release workflow then")
     else:
-        print(f"\n✅ Committed on {branch}. Push it and open a PR, then after the merge run:")
-    print("   python scripts/bump_version.py release")
+        print(f"\n✅ Committed on {branch}. Push it and open a PR; after the merge the Release workflow")
+    print("   tags and publishes it (fallback: python scripts/bump_version.py release)")
 
 
 # ---------------------------------------------------------------- release
@@ -300,8 +301,9 @@ def cmd_release(args: argparse.Namespace) -> None:
     local, remote = tag_exists(tag)
     if remote:
         raise ReleaseError(
-            f"Tag {tag} is already on {REMOTE}: this version was released. "
-            "Bump the version in a PR first (python scripts/bump_version.py patch --pr)."
+            f"Tag {tag} is already on {REMOTE}: this version is released "
+            "(the Release workflow does it right after the merge). "
+            "For a new release bump the version in a PR first (python scripts/bump_version.py patch --pr)."
         )
     if local:
         tagged = git("rev-list", "-n", "1", tag)
@@ -365,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python scripts/bump_version.py patch --pr      # bump, notes, commit, push branch, open PR\n"
             "  python scripts/bump_version.py minor -c        # same, but stop after the commit\n"
             "  python scripts/bump_version.py patch           # only edit manifest.json\n"
-            "  python scripts/bump_version.py release         # after merge: tag main, push tag, GitHub Release\n"
+            "  python scripts/bump_version.py release         # fallback after merge: tag main, push tag, GitHub Release\n"
             "  python scripts/bump_version.py release -d      # show what release would do\n"
         ),
     )

@@ -238,6 +238,8 @@ npm test
 | **hassfest (Home Assistant)** | Official validation of `manifest.json`, translations, services |
 | **HACS validation** | Repository is valid for HACS (needs a repo description, topics and enabled Issues) |
 
+A separate **Release** workflow (`release.yml`) runs after merges that change the version in `manifest.json` and publishes the GitHub Release.
+
 If the card snapshots differ only because CI renders with another Chromium build, run the workflow manually (**Actions → CI → Run workflow**, tick *update-snapshots*) and commit the PNGs from the `snapshots` artifact.
 
 **Protecting `main`** (Settings → Rules → Rulesets → New branch ruleset, target `main`):
@@ -249,15 +251,17 @@ With `main` protected, every release goes through a PR; `scripts/bump_version.py
 
 ### Version Management
 
-Releases are two commands, one before and one after the PR merge:
+Bump the version in a PR; after the merge the **Release** workflow tags and publishes it:
 
 ```bash
 # 1. Bump, write RELEASE_NOTES_X.Y.Z.md, commit, push the branch and open a PR.
 #    Run it on your feature branch, or on main (it then creates release/vX.Y.Z).
 python scripts/bump_version.py patch --pr      # or minor / major
 
-# 2. After the PR is merged (CI green): update main, tag the merged commit,
-#    push only the tag and create the GitHub Release from the notes.
+# 2. Merge the PR (CI green). .github/workflows/release.yml sees the new
+#    version in manifest.json, creates tag vX.Y.Z and the GitHub Release.
+
+# Manual fallback if the workflow didn't run: same steps from your machine.
 python scripts/bump_version.py release
 ```
 
@@ -320,14 +324,13 @@ Releases use `scripts/bump_version.py`, see [Version Management](#version-manage
 python scripts/bump_version.py patch --pr   # bug fixes:        0.1.0 -> 0.1.1
 python scripts/bump_version.py minor --pr   # new features:     0.1.0 -> 0.2.0
 python scripts/bump_version.py major --pr   # breaking changes: 0.1.0 -> 1.0.0
-# merge the PR, then:
-python scripts/bump_version.py release
+# merge the PR — the Release workflow tags it and publishes the GitHub Release
 ```
 
 **How HACS detects updates:**
 - HACS periodically checks the repository and offers the **latest GitHub Release** (the tag created by `release`)
 - Only repositories without any releases fall back to the newest commit of the default branch
-- So a version bump merged into `main` reaches users only after `bump_version.py release`
+- So a version bump merged into `main` reaches users once the Release workflow (or `bump_version.py release`) has published it
 - Users can trigger a check manually: HACS → ⋮ → **Update information**
 
 <!-- References -->

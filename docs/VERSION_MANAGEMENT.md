@@ -1,8 +1,9 @@
 # Version Management Guide
 
-`main` is protected (pull request + green CI required), so a release is two steps:
-the version bump travels through a PR, and the tag + GitHub Release are created
-from `main` after the merge. `scripts/bump_version.py` automates both.
+`main` is protected (pull request + green CI required), so the version bump
+travels through a PR made by `scripts/bump_version.py`, and after the merge the
+**Release** workflow (`.github/workflows/release.yml`) tags the merged commit and
+publishes the GitHub Release.
 
 ## Quick Start
 
@@ -10,8 +11,8 @@ from `main` after the merge. `scripts/bump_version.py` automates both.
 # 1. Bump the version, generate notes, commit, push the branch, open a PR
 python scripts/bump_version.py patch --pr
 
-# 2. Merge the PR on GitHub once CI is green, then:
-python scripts/bump_version.py release
+# 2. Merge the PR on GitHub once CI is green — that's it.
+#    The Release workflow creates tag vX.Y.Z and the GitHub Release.
 ```
 
 Requirements: a clean working tree and the [GitHub CLI](https://cli.github.com/)
@@ -41,6 +42,18 @@ Where the commit goes:
 The bump is refused if the target tag already exists locally or on GitHub.
 
 ## Step 2: release (after the merge)
+
+### Automatic: the Release workflow
+
+Runs on every push to `main` that changes `manifest.json` (and manually via
+**Actions → Release → Run workflow**). If tag `vX.Y.Z` doesn't exist yet, it
+creates it on the merged commit and publishes a GitHub Release with
+`RELEASE_NOTES_X.Y.Z.md` (or GitHub-generated notes when the file is missing).
+If the tag exists, it does nothing, so re-runs are safe.
+
+### Manual fallback: `release`
+
+Use it when the workflow is disabled or failed:
 
 ```bash
 python scripts/bump_version.py release          # tag, push tag, GitHub Release
