@@ -10,12 +10,16 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import PoltavaPowerOffCoordinator
 
 PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SELECT, Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
+
+# Налаштовується тільки через UI (config entry), YAML-конфігурації немає
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_REFRESH = "refresh"
 SERVICE_SCHEMA: vol.Schema = vol.Schema({})
