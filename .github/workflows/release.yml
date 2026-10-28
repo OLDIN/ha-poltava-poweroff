@@ -1,0 +1,78 @@
+name: Release
+
+# Publishes a GitHub Release whenever a merged PR changes the version in
+# manifest.json. Same steps as `python scripts/bump_version.py release`,
+# which stays available as a manual fallback.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - custom_components/poltava_poweroff/manifest.json
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(jq -r .version custom_components/poltava_poweroff/manifest.json)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version in manifest.json: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether the version is already released
+        id: check
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::notice::$TAG already exists, nothing to release"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $VERSION"
+          git push origin "refs/tags/$TAG"
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes="RELEASE_NOTES_${VERSION}.md"
+          if [ -f "$notes" ]; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes"
+          else
+            echo "::warning::$notes not found, using GitHub-generated notes"
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          fi
+          echo "### Released [$TAG](${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
