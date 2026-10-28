@@ -46,10 +46,11 @@ The bump is refused if the target tag already exists locally or on GitHub.
 ### Automatic: the Release workflow
 
 Runs on every push to `main` that changes `manifest.json` (and manually via
-**Actions → Release → Run workflow**). If tag `vX.Y.Z` doesn't exist yet, it
-creates it on the merged commit and publishes a GitHub Release with
+**Actions → Release → Run workflow**; manual runs only work on `main`). It
+checks the tag and the GitHub Release separately: a missing tag `vX.Y.Z` is
+created on the merged commit, and a missing release is published with
 `RELEASE_NOTES_X.Y.Z.md` (or GitHub-generated notes when the file is missing).
-If the tag exists, it does nothing, so re-runs are safe.
+When both exist it does nothing, so re-running a failed run finishes the job.
 
 ### Manual fallback: `release`
 
@@ -57,20 +58,22 @@ Use it when the workflow is disabled or failed:
 
 ```bash
 python scripts/bump_version.py release          # tag, push tag, GitHub Release
-python scripts/bump_version.py release -d       # dry run
+python scripts/bump_version.py release -d       # dry run (still updates local main)
 python scripts/bump_version.py release --no-gh-release   # only push the tag
 ```
 
 What it does:
 1. checks the working tree is clean;
 2. switches to `main` and runs `git pull --ff-only` (also in dry-run mode);
-3. reads the version from `manifest.json` and checks that `vX.Y.Z` is not on GitHub yet;
-4. creates the annotated tag `vX.Y.Z` on the merged commit and pushes **only that tag**;
+3. reads the version from `manifest.json` and checks that it isn't released yet;
+4. creates the annotated tag `vX.Y.Z` on the merged commit and pushes **only that tag**
+   (skipped when the tag is already on GitHub at the same commit);
 5. runs `gh release create vX.Y.Z --verify-tag --notes-file RELEASE_NOTES_X.Y.Z.md`
    (if the notes file is missing, notes are generated on the fly and not committed).
 
-If step 5 fails (e.g. `gh` isn't logged in), run `release` again: an existing local
-tag on the same commit is reused.
+If step 5 fails (e.g. `gh` isn't logged in), fix it and run `release` again: it sees
+the tag on GitHub without a release and only creates the release. With `--pr`,
+`gh` is checked before anything is changed, so a missing `gh` leaves no commit behind.
 
 ## Version Types
 

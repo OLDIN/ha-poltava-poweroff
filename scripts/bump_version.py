@@ -133,6 +133,26 @@ def notes_path(version: str) -> Path:
     return REPO_ROOT / f"RELEASE_NOTES_{version}.md"
 
 
+def remote_tag_commit(tag: str) -> str | None:
+    """Commit the tag points to on the remote (annotated tags are peeled)."""
+    out = git("ls-remote", "--tags", REMOTE, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}", check=False)
+    refs: dict[str, str] = {}
+    for line in out.splitlines():
+        sha, _, ref = line.partition("\t")
+        refs[ref] = sha
+    return refs.get(f"refs/tags/{tag}^{{}}") or refs.get(f"refs/tags/{tag}")
+
+
+def github_release_exists(gh: str, tag: str) -> bool:
+    """Whether a GitHub Release for ``tag`` exists."""
+    result = run([gh, "release", "view", tag, "--repo", github_repo(), "--json", "tagName"], check=False)
+    if result.returncode == 0:
+        return True
+    if "release not found" in result.stderr.lower():
+        return False
+    raise ReleaseError(f"Cannot query GitHub Releases (is gh logged in? run gh auth login):\n{result.stderr.strip()}")
+
+
 def tag_exists(tag: str) -> tuple[bool, bool]:
     """Return (exists locally, exists on the remote)."""
     local = bool(git("tag", "--list", tag))
@@ -143,8 +163,9 @@ def tag_exists(tag: str) -> tuple[bool, bool]:
 # ---------------------------------------------------------- release notes
 
 
-def get_latest_tag() -> str | None:
-    result = run(["git", "describe", "--tags", "--abbrev=0"], check=False)
+def get_latest_tag(exclude: str | None = None) -> str | None:
+    cmd = ["git", "describe", "--tags", "--abbrev=0"] + ([f"--exclude={exclude}"] if exclude else [])
+    result = run(cmd, check=False)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
@@ -210,6 +231,9 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     """Bump the version on a branch; optionally commit, push and open a PR."""
     commit = args.commit or args.pr
     notes = args.notes or commit
+    gh = find_gh() if args.pr else None
+    if args.pr and not gh:
+        raise ReleaseError("GitHub CLI (gh) not found. Install it (brew install gh) and run gh auth login.")
     if commit:
         ensure_clean_tree()
 
@@ -244,9 +268,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     execute(["git", "commit", "-m", f"Bump version to {new_version}"])
 
     if args.pr:
-        gh = find_gh()
-        if not gh:
-            raise ReleaseError("GitHub CLI (gh) not found. Install it (brew install gh) and run gh auth login.")
+        assert gh is not None
         execute(["git", "push", "-u", REMOTE, branch])
         execute(
             [
@@ -298,14 +320,23 @@ def cmd_release(args: argparse.Namespace) -> None:
 
     version = get_current_version()
     tag = f"v{version}"
-    local, remote = tag_exists(tag)
-    if remote:
-        raise ReleaseError(
-            f"Tag {tag} is already on {REMOTE}: this version is released "
-            "(the Release workflow does it right after the merge). "
-            "For a new release bump the version in a PR first (python scripts/bump_version.py patch --pr)."
-        )
-    if local:
+    local = bool(git("tag", "--list", tag))
+    remote_commit = remote_tag_commit(tag)
+    if remote_commit:
+        # The tag is already on GitHub: either fully released (nothing to do),
+        # or a previous run / the workflow pushed it and the release step failed.
+        if args.no_gh_release or (gh and github_release_exists(gh, tag)):
+            raise ReleaseError(
+                f"{tag} is already released (the Release workflow does it right after the merge). "
+                "For a new release bump the version in a PR first (python scripts/bump_version.py patch --pr)."
+            )
+        if remote_commit != head:
+            raise ReleaseError(
+                f"Tag {tag} on {REMOTE} points to {remote_commit[:7]}, not {MAIN_BRANCH} ({head[:7]}). "
+                "Fix the tag manually or bump the version."
+            )
+        print(f"↩️  Tag {tag} is already on {REMOTE} but has no GitHub Release; creating only the release")
+    elif local:
         tagged = git("rev-list", "-n", "1", tag)
         if tagged != head:
             raise ReleaseError(f"Local tag {tag} points to {tagged[:7]}, not {head[:7]}. Delete it: git tag -d {tag}")
@@ -314,7 +345,7 @@ def cmd_release(args: argparse.Namespace) -> None:
     temp_notes = False
     if not notes.exists():
         print(f"⚠️  {notes.name} is not in the repo; generating notes for the release only")
-        changelog = generate_changelog(get_commits_since_tag(get_latest_tag()), version)
+        changelog = generate_changelog(get_commits_since_tag(get_latest_tag(exclude=tag)), version)
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
             f.write(changelog)
         notes = Path(f.name)
@@ -324,9 +355,10 @@ def cmd_release(args: argparse.Namespace) -> None:
     print(f"🏷️  Releasing {tag} at {subject}")
 
     try:
-        if not local:
-            execute(["git", "tag", "-a", tag, "-m", f"Release {version}"])
-        execute(["git", "push", REMOTE, f"refs/tags/{tag}"])
+        if not remote_commit:
+            if not local:
+                execute(["git", "tag", "-a", tag, "-m", f"Release {version}"])
+            execute(["git", "push", REMOTE, f"refs/tags/{tag}"])
         if args.no_gh_release:
             print(f"\n✅ Tag {tag} pushed (GitHub Release skipped)")
             return
@@ -396,7 +428,12 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("release", help=f"after merge: tag {MAIN_BRANCH}, push the tag, create the GitHub Release")
     r.set_defaults(func=cmd_release)
     r.add_argument("--no-gh-release", action="store_true", help="only push the tag, skip gh release create")
-    r.add_argument("-d", "--dry-run", action="store_true", help="print the tag/push/release commands only")
+    r.add_argument(
+        "-d",
+        "--dry-run",
+        action="store_true",
+        help=f"print the tag/push/release commands only (still switches to and fast-forwards {MAIN_BRANCH})",
+    )
     return parser
 
 

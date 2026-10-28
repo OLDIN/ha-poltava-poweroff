@@ -21,6 +21,8 @@ permissions:
 jobs:
   release:
     name: Tag and publish release
+    # Manual runs from other branches must not publish unmerged code.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -38,20 +40,32 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check whether the version is already released
+      - name: Check tag and release
         id: check
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
+          # Checked separately, so a run that pushed the tag but failed to
+          # create the release is finished by the next run.
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            echo "::notice::$TAG already exists, nothing to release"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "tag=true" >> "$GITHUB_OUTPUT"
+            tagged=$(git rev-parse "$TAG^{commit}")
+            if [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::notice::$TAG already points to ${tagged:0:7}; the release (if missing) is created for that commit"
+            fi
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "tag=false" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
+            echo "::notice::$TAG is already released, nothing to do"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create tag
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.tag == 'false'
         env:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -62,7 +76,7 @@ jobs:
           git push origin "refs/tags/$TAG"
 
       - name: Create GitHub Release
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.release == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
