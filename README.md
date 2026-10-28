@@ -265,7 +265,7 @@ python scripts/bump_version.py patch --pr      # or minor / major
 python scripts/bump_version.py release
 ```
 
-Nothing is ever pushed to `main` directly. Both commands accept `-d/--dry-run` to print the git/gh commands without running them.
+Nothing is ever pushed to `main` directly. Both commands accept `-d/--dry-run` to print the git/gh commands without running them (`release -d` still switches to `main` and fast-forwards it, since that's needed to read the merged version).
 
 **Bump options** (`major|minor|patch`):
 - `-n, --notes`: only generate `RELEASE_NOTES_X.Y.Z.md` (release dates use Kyiv time)
