@@ -119,4 +119,3 @@ class PoltavaPowerOffSensor(CoordinatorEntity[PoltavaPowerOffCoordinator], Senso
         if not has_future_today and attrs["poweroff_periods_tomorrow"]:
             active = attrs["poweroff_periods_tomorrow"]
         return {"poweroff_periods": active, **attrs}
-

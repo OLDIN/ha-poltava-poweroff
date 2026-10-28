@@ -81,7 +81,9 @@ def build_app() -> web.Application:
         if mode == "http500":
             return web.Response(status=502, text="<html><body>502 Bad Gateway</body></html>", content_type="text/html")
         if mode == "garbage":
-            return web.Response(text="<html><title>Just a moment...</title>Checking your browser</html>", content_type="text/html")
+            return web.Response(
+                text="<html><title>Just a moment...</title>Checking your browser</html>", content_type="text/html"
+            )
         if mode == "timeout":
             await asyncio.sleep(120)
         sched = app["schedule"].get(group) or app["schedule"]["default"]

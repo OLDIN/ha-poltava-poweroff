@@ -148,8 +148,10 @@ async def test_scrapper_raises_on_network_error() -> None:
 
 def test_published_day_without_outages_is_empty_list() -> None:
     """Шкала на день є, але жодної активної години → [] (відключень немає), а не None."""
-    html = load_energyua_page("energyua_12_page.html").replace("hour_active", "hour_x").replace(
-        'class="scale_info_periods"', 'class="x"'
+    html = (
+        load_energyua_page("energyua_12_page.html")
+        .replace("hour_active", "hour_x")
+        .replace('class="scale_info_periods"', 'class="x"')
     )
     today, tomorrow = EnergyUaScrapper("1-2").parse_page(html)
     assert today == []
@@ -161,9 +163,14 @@ def test_published_day_without_outages_is_empty_list() -> None:
     [
         ([PowerOffPeriod(22, 23, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(22, 0.0, True)]),
         ([PowerOffPeriod(20, 22, True), PowerOffPeriod(22, 0.0, True)], [PowerOffPeriod(20, 0.0, True)]),
-        ([PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)]),
-        ([PowerOffPeriod(8, 9, True), PowerOffPeriod(9, 10, True), PowerOffPeriod(12, 13, True)],
-         [PowerOffPeriod(8, 10, True), PowerOffPeriod(12, 13, True)]),
+        (
+            [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)],
+            [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)],
+        ),
+        (
+            [PowerOffPeriod(8, 9, True), PowerOffPeriod(9, 10, True), PowerOffPeriod(12, 13, True)],
+            [PowerOffPeriod(8, 10, True), PowerOffPeriod(12, 13, True)],
+        ),
     ],
 )
 def test_merge_periods_keeps_hour_before_midnight(periods, expected) -> None:

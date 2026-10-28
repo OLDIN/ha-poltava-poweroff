@@ -29,7 +29,10 @@ async def main() -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         ctx = await browser.new_context(
-            viewport={"width": 520, "height": 1000}, device_scale_factor=2, color_scheme=scheme, locale="uk-UA",
+            viewport={"width": 520, "height": 1000},
+            device_scale_factor=2,
+            color_scheme=scheme,
+            locale="uk-UA",
             timezone_id="Europe/Kyiv",
         )
         await ctx.add_init_script(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});")

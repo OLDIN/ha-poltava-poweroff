@@ -165,6 +165,7 @@ async def test_view_queue_failure_does_not_break_home(hass: HomeAssistant) -> No
 
 # ---------------------------------------------------------------- через північ
 
+
 async def _at(hass, freezer, when):
     await hass.config.async_set_time_zone("Europe/Kyiv")
     freezer.move_to(when)
@@ -186,7 +187,10 @@ async def test_outage_across_midnight_next_on_is_after_midnight(hass: HomeAssist
     assert coord.next_poweron == datetime(2026, 10, 29, 2, 0, tzinfo=kyiv)
     assert coord.next_poweroff == datetime(2026, 10, 29, 9, 0, tzinfo=kyiv)
     event = coord.get_current_or_next_event()
-    assert (event.start, event.end) == (datetime(2026, 10, 28, 21, 0, tzinfo=kyiv), datetime(2026, 10, 29, 2, 0, tzinfo=kyiv))
+    assert (event.start, event.end) == (
+        datetime(2026, 10, 28, 21, 0, tzinfo=kyiv),
+        datetime(2026, 10, 29, 2, 0, tzinfo=kyiv),
+    )
 
 
 async def test_after_midnight_outage_started_yesterday(hass: HomeAssistant, freezer) -> None:
@@ -196,7 +200,9 @@ async def test_after_midnight_outage_started_yesterday(hass: HomeAssistant, free
     kyiv = ZoneInfo("Europe/Kyiv")
     await _at(hass, freezer, datetime(2026, 10, 28, 23, 0, tzinfo=kyiv))
     coord = _make(hass)
-    coord.api.get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(21, 0.0, True)], [PowerOffPeriod(0, 2, False)]))
+    coord.api.get_power_off_periods = AsyncMock(
+        return_value=([PowerOffPeriod(21, 0.0, True)], [PowerOffPeriod(0, 2, False)])
+    )
     await coord._async_update_data()
     freezer.move_to(datetime(2026, 10, 29, 0, 30, tzinfo=kyiv))  # сайт уже не питаємо
     assert coord.current_state == "Power OFF"

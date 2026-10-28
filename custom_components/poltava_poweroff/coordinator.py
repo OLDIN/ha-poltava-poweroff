@@ -375,16 +375,17 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         raw: list[tuple[datetime, datetime]] = []
         for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
             midnight = dt_util.start_of_local_day(day)
-            for start, end in state.schedule.get(day.isoformat(), []):
-                end_h = 24.0 if float(end) == 0.0 or float(end) < float(start) else float(end)
-                raw.append((midnight + timedelta(hours=float(start)), midnight + timedelta(hours=end_h)))
+            for start_h, end_h in state.schedule.get(day.isoformat(), []):
+                if float(end_h) == 0.0 or float(end_h) < float(start_h):
+                    end_h = 24.0  # кінець доби
+                raw.append((midnight + timedelta(hours=float(start_h)), midnight + timedelta(hours=float(end_h))))
         raw.sort()
         merged: list[tuple[datetime, datetime]] = []
-        for start, end in raw:
-            if merged and start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        for start_dt, end_dt in raw:
+            if merged and start_dt <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end_dt))
             else:
-                merged.append((start, end))
+                merged.append((start_dt, end_dt))
         return merged
 
     def _next_change(self, state: QueueState, on: bool) -> datetime | None:

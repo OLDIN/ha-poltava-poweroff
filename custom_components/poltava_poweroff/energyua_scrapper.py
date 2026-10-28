@@ -97,7 +97,11 @@ class EnergyUaScrapper:
             response = await asyncio.to_thread(scraper.get, url, headers=headers, timeout=REQUEST_TIMEOUT)
         except Exception as err:  # мережа, DNS, таймаут, cloudscraper-челендж
             LOGGER.debug("Request to %s failed: %r", url, err)
-            kind = "таймаут" if "timeout" in type(err).__name__.lower() or "timed out" in str(err).lower() else "немає з'єднання"
+            kind = (
+                "таймаут"
+                if "timeout" in type(err).__name__.lower() or "timed out" in str(err).lower()
+                else "немає з'єднання"
+            )
             raise ScraperError(f"Не вдалося з'єднатися з energy-ua.info ({kind})") from err
 
         status = getattr(response, "status_code", None)

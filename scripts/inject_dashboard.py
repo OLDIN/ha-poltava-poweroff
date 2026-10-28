@@ -34,7 +34,9 @@ cards = [
             "version": 1,
             "minor_version": 1,
             "key": "lovelace.poweroff",
-            "data": {"config": {"title": "Відключення", "views": [{"title": "Відключення", "path": "0", "cards": cards}]}},
+            "data": {
+                "config": {"title": "Відключення", "views": [{"title": "Відключення", "path": "0", "cards": cards}]}
+            },
         },
         ensure_ascii=False,
         indent=2,

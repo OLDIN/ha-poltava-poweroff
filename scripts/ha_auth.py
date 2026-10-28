@@ -53,42 +53,43 @@ def main():
         time.sleep(2)
 
     ob = _get_json(f"{base}/api/onboarding")
-    user_done = isinstance(ob, list) and next(
-        (s["done"] for s in ob if s["step"] == "user"), True
-    )
+    user_done = isinstance(ob, list) and next((s["done"] for s in ob if s["step"] == "user"), True)
 
     auth_code = None
     if isinstance(ob, list) and not user_done:
         # створити owner
-        st, resp = _post(f"{base}/api/onboarding/users", {
-            "client_id": client, "name": "Admin",
-            "username": user, "password": pw, "language": "uk"})
+        st, resp = _post(
+            f"{base}/api/onboarding/users",
+            {"client_id": client, "name": "Admin", "username": user, "password": pw, "language": "uk"},
+        )
         auth_code = resp.get("auth_code")
         # завершити решту кроків
-        _, tok = _post(f"{base}/auth/token", {
-            "client_id": client, "grant_type": "authorization_code",
-            "code": auth_code}, form=True)
+        _, tok = _post(
+            f"{base}/auth/token",
+            {"client_id": client, "grant_type": "authorization_code", "code": auth_code},
+            form=True,
+        )
         access = tok.get("access_token")
         for step in ("core_config", "analytics"):
-            _post(f"{base}/api/onboarding/{step}", {},
-                  headers={"Authorization": f"Bearer {access}"})
-        _post(f"{base}/api/onboarding/integration",
-              {"client_id": client, "redirect_uri": client},
-              headers={"Authorization": f"Bearer {access}"})
+            _post(f"{base}/api/onboarding/{step}", {}, headers={"Authorization": f"Bearer {access}"})
+        _post(
+            f"{base}/api/onboarding/integration",
+            {"client_id": client, "redirect_uri": client},
+            headers={"Authorization": f"Bearer {access}"},
+        )
         print(access)
         return
 
     # onboarding вже пройдено -> логін через login_flow
-    st, flow = _post(f"{base}/auth/login_flow", {
-        "client_id": client, "handler": ["homeassistant", None],
-        "redirect_uri": client})
+    st, flow = _post(
+        f"{base}/auth/login_flow", {"client_id": client, "handler": ["homeassistant", None], "redirect_uri": client}
+    )
     flow_id = flow.get("flow_id")
-    st, step = _post(f"{base}/auth/login_flow/{flow_id}", {
-        "client_id": client, "username": user, "password": pw})
+    st, step = _post(f"{base}/auth/login_flow/{flow_id}", {"client_id": client, "username": user, "password": pw})
     code = step.get("result")
-    st, tok = _post(f"{base}/auth/token", {
-        "client_id": client, "grant_type": "authorization_code",
-        "code": code}, form=True)
+    st, tok = _post(
+        f"{base}/auth/token", {"client_id": client, "grant_type": "authorization_code", "code": code}, form=True
+    )
     print(tok.get("access_token", ""))
 
 
