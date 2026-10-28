@@ -21,12 +21,12 @@ def load_energyua_page(test_page: str) -> str:
             "1.2",
             "energyua_12_page.html",
             [
-                # Періоди з scale_info_periods: 06:30-09:00, 12:30-15:00, 18:30-20:00
+                # Periods from scale_info_periods: 06:30-09:00, 12:30-15:00, 18:30-20:00
                 PowerOffPeriod(6.5, 9.0, today=True),
                 PowerOffPeriod(12.5, 15.0, today=True),
                 PowerOffPeriod(18.5, 20.0, today=True),
             ],
-            None,  # заголовок «завтра» є, але графіка ще немає
+            None,  # the "tomorrow" header exists, but there is no schedule yet
         ),
         (
             "1.1",
@@ -41,7 +41,7 @@ def load_energyua_page(test_page: str) -> str:
         (
             "1.2",
             "energyua_12_nodata_page.html",
-            None,  # «Немає даних» — не те саме, що «відключень немає»
+            None,  # "Немає даних" (no data) is not the same as "no outages"
             None,
         ),
         (
@@ -65,10 +65,10 @@ def load_energyua_page(test_page: str) -> str:
 )
 async def test_energyua_scrapper(group, test_page, expected_today, expected_tomorrow) -> None:
     # Given a response from the EnergyUa website
-    # Мокаємо cloudscraper, оскільки він використовує requests, а не aiohttp
+    # Mock cloudscraper: it uses requests, not aiohttp
     html_content = load_energyua_page(test_page)
 
-    # Створюємо mock response об'єкт
+    # Mock response object
     mock_response = type(
         "MockResponse",
         (),
@@ -79,7 +79,7 @@ async def test_energyua_scrapper(group, test_page, expected_today, expected_tomo
         },
     )()
 
-    # Мокаємо cloudscraper.create_scraper та метод get
+    # Mock cloudscraper.create_scraper and its get method
     def mock_get(*args, **kwargs):
         return mock_response
 
@@ -124,12 +124,12 @@ def _resp(text: str, status: int = 200):
     ],
 )
 async def test_scrapper_raises_on_bad_page(response) -> None:
-    """Сайт лежить / Cloudflare / техроботи → виняток, а не порожній графік."""
+    """Site down / Cloudflare / maintenance -> an exception, not an empty schedule."""
     from poltava_poweroff.energyua_scrapper import ScraperError
 
     with _mock_scraper(lambda *a, **k: response), pytest.raises(ScraperError) as exc:
         await EnergyUaScrapper("1-1").get_power_off_periods()
-    # Повідомлення для людини (показується в картці): українською і без адреси сайту
+    # Human-readable message (shown on the card): Ukrainian UI text, without the site URL
     assert "http://" not in str(exc.value)
     assert "https://" not in str(exc.value)
     assert str(exc.value).startswith(("Сайт відповів помилкою HTTP", "Сайт повернув сторінку без графіка"))
@@ -147,9 +147,11 @@ async def test_scrapper_raises_on_network_error() -> None:
 
 
 def test_published_day_without_outages_is_empty_list() -> None:
-    """Шкала на день є, але жодної активної години → [] (відключень немає), а не None."""
-    html = load_energyua_page("energyua_12_page.html").replace("hour_active", "hour_x").replace(
-        'class="scale_info_periods"', 'class="x"'
+    """A day scale without active hours -> [] (no outages), not None."""
+    html = (
+        load_energyua_page("energyua_12_page.html")
+        .replace("hour_active", "hour_x")
+        .replace('class="scale_info_periods"', 'class="x"')
     )
     today, tomorrow = EnergyUaScrapper("1-2").parse_page(html)
     assert today == []
@@ -161,11 +163,16 @@ def test_published_day_without_outages_is_empty_list() -> None:
     [
         ([PowerOffPeriod(22, 23, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(22, 0.0, True)]),
         ([PowerOffPeriod(20, 22, True), PowerOffPeriod(22, 0.0, True)], [PowerOffPeriod(20, 0.0, True)]),
-        ([PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)], [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)]),
-        ([PowerOffPeriod(8, 9, True), PowerOffPeriod(9, 10, True), PowerOffPeriod(12, 13, True)],
-         [PowerOffPeriod(8, 10, True), PowerOffPeriod(12, 13, True)]),
+        (
+            [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)],
+            [PowerOffPeriod(0, 1, True), PowerOffPeriod(23, 0.0, True)],
+        ),
+        (
+            [PowerOffPeriod(8, 9, True), PowerOffPeriod(9, 10, True), PowerOffPeriod(12, 13, True)],
+            [PowerOffPeriod(8, 10, True), PowerOffPeriod(12, 13, True)],
+        ),
     ],
 )
 def test_merge_periods_keeps_hour_before_midnight(periods, expected) -> None:
-    """Погодинна шкала: 22–23 + 23–00 мало б бути 22–00, а не обрізатися до 22–23."""
+    """Hourly scale: 22–23 + 23–00 must become 22–00, not be cut to 22–23."""
     assert EnergyUaScrapper.merge_periods(periods) == expected

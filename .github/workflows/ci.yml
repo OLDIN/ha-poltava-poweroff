@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update-snapshots:
+        description: "Re-take the card snapshots (tests/js/__snapshots__) and upload them as an artifact"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (pre-commit, mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # The same hooks as locally; pytest/vitest/mypy run as separate steps below
+      - name: pre-commit (ruff, ruff-format, whitespace, yaml)
+        run: SKIP=mypy,pytest,vitest pre-commit run --all-files --show-diff-on-failure
+      - name: mypy
+        run: mypy custom_components/poltava_poweroff
+
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest --cov=custom_components/poltava_poweroff --cov-report=term-missing
+
+  card:
+    name: Card tests (vitest + snapshots)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci # also installs Chromium for puppeteer
+      - name: Remove snapshots to re-take them
+        if: ${{ inputs.update-snapshots }}
+        run: rm -f tests/js/__snapshots__/*.png
+      - run: npm test
+      - name: Upload new snapshots
+        if: ${{ inputs.update-snapshots }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshots
+          path: tests/js/__snapshots__/*.png
+      - name: Upload snapshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshot-diffs
+          path: tests/js/__snapshots__/*-diff.png
+          if-no-files-found: ignore
+
+  hassfest:
+    name: hassfest (Home Assistant)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands

@@ -12,8 +12,8 @@ const __dirname = dirname(__filename);
 const componentPath = resolve(__dirname, '../../custom_components/poltava_poweroff/www/poweroff-timeline-card.js');
 const componentCode = readFileSync(componentPath, 'utf-8');
 
-// Шрифт картки вбудовуємо в тестову сторінку (data: URL) — той самий, що картка вантажить у HA,
-// тож знімки однакові на macOS, Linux і в CI.
+// The card font is embedded into the test page (data: URL), the same font the card loads in HA,
+// so the snapshots are identical on macOS, Linux and CI.
 const fontsDir = resolve(__dirname, '../../custom_components/poltava_poweroff/www/fonts');
 const fontFace = (file) => `@font-face {
   font-family: "PoweroffInter";
@@ -25,22 +25,22 @@ const CARD_FONT_CSS = [fontFace('inter-latin-wght-normal.woff2'), fontFace('inte
 // Helper function to normalize SVG for snapshot testing
 function normalizeSvgForSnapshot(svgHtml) {
   let normalized = svgHtml;
-  
+
   // Remove dynamic dates (replace with placeholder)
   normalized = normalized.replace(/\d{2}\.\d{2}/g, 'DD.MM');
-  
+
   // Remove dynamic times (replace with placeholder)
   normalized = normalized.replace(/\d{2}:\d{2}/g, 'HH:MM');
-  
+
   // Normalize opacity values (round to 2 decimals)
   normalized = normalized.replace(/opacity:([\d.]+)/g, (match, value) => {
     const num = parseFloat(value);
     return `opacity:${num.toFixed(2)}`;
   });
-  
+
   // Remove any dynamic IDs or timestamps
   normalized = normalized.replace(/id="[^"]*"/g, 'id="normalized"');
-  
+
   // Normalize path data (keep structure but normalize precision)
   normalized = normalized.replace(/d="([^"]*)"/g, (match, pathData) => {
     // Round numbers in path data to 2 decimal places
@@ -49,7 +49,7 @@ function normalizeSvgForSnapshot(svgHtml) {
     });
     return `d="${normalizedPath}"`;
   });
-  
+
   return normalized;
 }
 
@@ -77,12 +77,12 @@ class HtmlToPngRenderer {
       throw new Error('renderer is not initialized');
     }
 
-    // Сторінка без зовнішніх ресурсів: 'load' достатньо (networkidle0 зависав на повторних setContent)
+    // A page without external resources: 'load' is enough (networkidle0 hung on repeated setContent)
     await this.page.setContent(htmlContent, { waitUntil: 'load' });
     await this.page.evaluate(() => document.fonts && document.fonts.ready);
 
-    return this.page.screenshot({ 
-      type: 'png', 
+    return this.page.screenshot({
+      type: 'png',
       fullPage: true
     });
   }
@@ -117,7 +117,7 @@ describe('PowerOffTimelineCard', () => {
     // Mock Home Assistant elements
     class MockHaCard extends dom.window.HTMLElement {}
     class MockHaIcon extends dom.window.HTMLElement {}
-    
+
     if (!dom.window.customElements.get('ha-card')) {
       dom.window.customElements.define('ha-card', MockHaCard);
     }
@@ -223,7 +223,7 @@ describe('PowerOffTimelineCard', () => {
     it('should render legend', () => {
       const legend = card.content.querySelectorAll('.legend-item');
       expect(legend.length).toBeGreaterThan(0);
-      
+
       const legendTexts = Array.from(legend).map(item => item.textContent);
       expect(legendTexts.some(text => text.includes('Відключення'))).toBe(true);
       expect(legendTexts.some(text => text.includes('Світло є'))).toBe(true);
@@ -232,7 +232,7 @@ describe('PowerOffTimelineCard', () => {
     it('should render next outage as one compact line', () => {
       const line = card.content.querySelector('.next-line');
       expect(line).not.toBeNull();
-      // next_off = +1 год, next_on = +2 год → «Наступне відключення: HH:MM – HH:MM»
+      // next_off = +1 h, next_on = +2 h -> "Наступне відключення: HH:MM – HH:MM"
       expect(line.textContent).toMatch(/Наступне відключення: (завтра )?\d{2}:\d{2} – (завтра )?\d{2}:\d{2}/);
       expect(card.content.textContent).not.toContain('Наступне увімкнення');
     });
@@ -265,7 +265,7 @@ describe('PowerOffTimelineCard', () => {
     it('should build pattern for single period', () => {
       const periods = [{ start: 6.0, end: 9.0, today: true }];
       const pattern = card.buildPattern(periods);
-      
+
       // 6:00 = slot 12, 9:00 = slot 18
       // Slots 12-17 should be '0' (power off)
       expect(pattern.substring(12, 18)).toBe('000000');
@@ -277,10 +277,10 @@ describe('PowerOffTimelineCard', () => {
         { start: 12.5, end: 15.0, today: true },
       ];
       const pattern = card.buildPattern(periods);
-      
+
       // 6.5 = slot 13, 9.0 = slot 18
       expect(pattern.substring(13, 18)).toBe('00000');
-      
+
       // 12.5 = slot 25, 15.0 = slot 30
       expect(pattern.substring(25, 30)).toBe('00000');
     });
@@ -288,7 +288,7 @@ describe('PowerOffTimelineCard', () => {
     it('should handle period ending at midnight (0.0)', () => {
       const periods = [{ start: 22.0, end: 0.0, today: true }];
       const pattern = card.buildPattern(periods);
-      
+
       // 22:00 = slot 44, end=0.0 is treated as 24:00 = slot 48
       // So slots 44-48 (22:00 to 24:00) should be off
       expect(pattern.substring(44, 48)).toBe('0000');
@@ -299,7 +299,7 @@ describe('PowerOffTimelineCard', () => {
       // end=2.0 is treated as 2:00 of the same day, not next day
       const periods = [{ start: 22.0, end: 2.0, today: true }];
       const pattern = card.buildPattern(periods);
-      
+
       // Since end=2.0 < start=22.0, the loop doesn't execute
       // This is expected behavior - wrapping periods need special handling
       expect(pattern.substring(44, 48)).toBe('1111'); // No slots marked as off
@@ -309,7 +309,7 @@ describe('PowerOffTimelineCard', () => {
   describe('Tab Switching', () => {
     beforeEach(() => {
       card.setConfig({ entity: 'sensor.power_state' });
-      // Відключення до кінця доби, щоб «сьогодні» мало майбутні періоди незалежно від часу запуску тестів
+      // An outage until the end of the day, so "today" has future periods whenever the tests run
       mockHass.states['sensor.power_state'].attributes.poweroff_periods_today.push({ start: 23.5, end: 0.0 });
       card.hass = mockHass;
     });
@@ -322,7 +322,7 @@ describe('PowerOffTimelineCard', () => {
 
     it('should switch to tomorrow tab on button click', () => {
       card.tomorrowButton.click();
-      
+
       expect(card.selectedTab).toBe('tomorrow');
       expect(card.tomorrowButton.classList.contains('active')).toBe(true);
       expect(card.todayButton.classList.contains('active')).toBe(false);
@@ -331,14 +331,14 @@ describe('PowerOffTimelineCard', () => {
     it('should switch back to today tab on button click', () => {
       card.tomorrowButton.click();
       card.todayButton.click();
-      
+
       expect(card.selectedTab).toBe('today');
       expect(card.todayButton.classList.contains('active')).toBe(true);
     });
 
     it('should update header text when switching tabs', () => {
       expect(card.headerText.textContent).toBe('Сьогодні');
-      
+
       card.tomorrowButton.click();
       expect(card.headerText.textContent).toBe('Завтра');
     });
@@ -346,12 +346,12 @@ describe('PowerOffTimelineCard', () => {
     it('should update spiral chart when switching tabs', () => {
       const svgBefore = card.content.querySelector('svg.spiral-chart');
       const textBefore = svgBefore.textContent;
-      
+
       card.tomorrowButton.click();
-      
+
       const svgAfter = card.content.querySelector('svg.spiral-chart');
       const textAfter = svgAfter.textContent;
-      
+
       // Content should change (different date/periods)
       expect(textAfter).not.toBe(textBefore);
     });
@@ -371,7 +371,7 @@ describe('PowerOffTimelineCard', () => {
     it('should render 24 hour labels', () => {
       const labels = card.content.querySelectorAll('text.spiral-hour-label');
       expect(labels.length).toBe(24);
-      
+
       // Check that labels contain hour numbers
       const labelTexts = Array.from(labels).map(label => label.textContent);
       expect(labelTexts).toContain('0');
@@ -405,11 +405,11 @@ describe('PowerOffTimelineCard', () => {
     it('should apply correct colors to segments', () => {
       const segments = card.content.querySelectorAll('path.spiral-segment');
       const colors = Array.from(segments).map(seg => seg.getAttribute('style'));
-      
+
       // Should have both power off (pink) and power on (green) segments
       const hasPink = colors.some(style => style.includes('rgb(255 182 193)'));
       const hasGreen = colors.some(style => style.includes('rgb(144 238 144)'));
-      
+
       expect(hasPink).toBe(true);
       expect(hasGreen).toBe(true);
     });
@@ -417,8 +417,8 @@ describe('PowerOffTimelineCard', () => {
 
   describe('Image Snapshot Tests', () => {
     const snapshotDir = resolve(__dirname, '__snapshots__');
-    // Допустима частка пікселів, що відрізняються. Шрифт однаковий скрізь (вбудований Inter),
-    // а пікселі згладжування pixelmatch і так не рахує — лишається запас на дрібниці рендерингу.
+    // Allowed share of differing pixels. The font is the same everywhere (bundled Inter)
+    // and pixelmatch ignores anti-aliased pixels anyway; this leaves room for tiny rendering differences.
     const MAX_DIFF_RATIO = 0.005;
     let RealDate;
 
@@ -432,7 +432,7 @@ describe('PowerOffTimelineCard', () => {
 
     beforeEach((ctx) => {
       if (!render.page) ctx.skip();
-      // Фіксований годинник: затемнення минулих годин і «зараз» не залежать від часу запуску
+      // Frozen clock: dimming of past hours and "now" don't depend on when the tests run
       RealDate = dom.window.Date;
       const fixed = new RealDate('2026-10-27T12:10:00').getTime();
       dom.window.Date = class extends RealDate {
@@ -447,7 +447,7 @@ describe('PowerOffTimelineCard', () => {
     afterEach(() => {
       if (RealDate) dom.window.Date = RealDate;
     });
-    
+
     // Ensure snapshot directory exists
     if (!existsSync(snapshotDir)) {
       mkdirSync(snapshotDir, { recursive: true });
@@ -455,13 +455,13 @@ describe('PowerOffTimelineCard', () => {
 
     async function compareImageSnapshot(actualPng, snapshotName) {
       const snapshotPath = resolve(snapshotDir, `${snapshotName}.png`);
-      
+
       if (!existsSync(snapshotPath)) {
         // First run: save snapshot
         writeFileSync(snapshotPath, actualPng);
         return { match: true, isNew: true };
       }
-      
+
       // Compare with existing snapshot
       const expected = PNG.sync.read(readFileSync(snapshotPath));
       const actual = PNG.sync.read(Buffer.from(actualPng));
@@ -482,7 +482,7 @@ describe('PowerOffTimelineCard', () => {
     function createHtmlForScreenshot(cardElement) {
       // Get the entire card structure (ha-card with all children)
       let cardHtml = '';
-      
+
       if (cardElement.card) {
         // Get all content from ha-card including header and content div
         cardHtml = cardElement.card.innerHTML;
@@ -495,15 +495,15 @@ describe('PowerOffTimelineCard', () => {
           cardHtml += cardElement.content.innerHTML;
         }
       }
-      
+
       // Get inline styles from the card content
       const cardStyles = cardElement.content?.querySelector('style')?.textContent || '';
-      
+
       // Normalize only dates/times for snapshot consistency
-      // Лише в тексті між тегами — не в атрибутах (інакше ламаються координати шляхів спіралі)
+      // Only text between tags, not attributes (otherwise the spiral path coordinates break)
       const normalized = cardHtml.replace(/>([^<]*)</g, (m, text) =>
         '>' + text.replace(/\d{2}\.\d{2}/g, 'DD.MM').replace(/\d{2}:\d{2}/g, 'HH:MM') + '<');
-      
+
       // Create HTML page with the full card structure and all styles
       return `
 <!DOCTYPE html>
@@ -598,12 +598,12 @@ describe('PowerOffTimelineCard', () => {
     it('should match image snapshot for today tab with periods', async () => {
       card.selectedTab = 'today';
       card.updateTimeline();
-      
+
       const htmlContent = createHtmlForScreenshot(card);
       const screenshot = await render.screenshot(htmlContent);
-      
+
       const result = await compareImageSnapshot(screenshot, 'today-tab-with-periods');
-      
+
       if (result.isNew) {
         console.log('Created new snapshot: today-tab-with-periods.png');
       }
@@ -612,15 +612,15 @@ describe('PowerOffTimelineCard', () => {
 
     it('should match image snapshot for tomorrow tab with periods', async () => {
       card.selectedTab = 'tomorrow';
-      card._userPickedTab = true; // інакше авто-вибір таба поверне «сьогодні» (є майбутні відключення)
+      card._userPickedTab = true; // otherwise auto tab selection switches back to today (it has future outages)
       card.updateTimeline();
       expect(card.headerText.textContent).toBe('Завтра');
-      
+
       const htmlContent = createHtmlForScreenshot(card);
       const screenshot = await render.screenshot(htmlContent);
-      
+
       const result = await compareImageSnapshot(screenshot, 'tomorrow-tab-with-periods');
-      
+
       if (result.isNew) {
         console.log('Created new snapshot: tomorrow-tab-with-periods.png');
       }
@@ -644,15 +644,15 @@ describe('PowerOffTimelineCard', () => {
           },
         },
       };
-      
+
       card.hass = emptyHass;
       card.updateTimeline();
-      
+
       const htmlContent = createHtmlForScreenshot(card);
       const screenshot = await render.screenshot(htmlContent);
-      
+
       const result = await compareImageSnapshot(screenshot, 'empty-periods');
-      
+
       if (result.isNew) {
         console.log('Created new snapshot: empty-periods.png');
       }
@@ -676,15 +676,15 @@ describe('PowerOffTimelineCard', () => {
           },
         },
       };
-      
+
       card.hass = fullDayOffHass;
       card.updateTimeline();
-      
+
       const htmlContent = createHtmlForScreenshot(card);
       const screenshot = await render.screenshot(htmlContent);
-      
+
       const result = await compareImageSnapshot(screenshot, 'full-day-power-off');
-      
+
       if (result.isNew) {
         console.log('Created new snapshot: full-day-power-off.png');
       }
@@ -720,7 +720,7 @@ describe('PowerOffTimelineCard', () => {
     it('should handle missing entity gracefully', () => {
       card.setConfig({ entity: 'sensor.nonexistent' });
       card.hass = { states: {} };
-      
+
       expect(card.content.innerHTML).toContain('Entity not found');
     });
 
@@ -740,10 +740,10 @@ describe('PowerOffTimelineCard', () => {
           },
         },
       };
-      
+
       card.setConfig({ entity: 'sensor.power_state' });
       card.hass = emptyHass;
-      
+
       // Should still render the card
       expect(card.content.querySelector('svg')).toBeDefined();
     });
@@ -766,10 +766,10 @@ describe('PowerOffTimelineCard', () => {
           },
         },
       };
-      
+
       card.setConfig({ entity: 'sensor.power_state' });
       card.hass = tomorrowOnlyHass;
-      
+
       // Should switch to tomorrow tab
       expect(card.selectedTab).toBe('tomorrow');
     });
@@ -790,7 +790,7 @@ describe('PowerOffTimelineCard', () => {
     it('should generate different paths for different angles', () => {
       const path1 = card.createSpiralPath(35, 37.3, 45, 0, Math.PI / 12);
       const path2 = card.createSpiralPath(35, 37.3, 45, Math.PI / 12, Math.PI / 6);
-      
+
       expect(path1).not.toBe(path2);
     });
   });
@@ -910,7 +910,7 @@ describe('PowerOffTimelineCard', () => {
       card.hass = makeHass(selectState('2.1'));
       const pattern = card.buildPattern([{ start: 1.0, end: 3.0 }]);
       const fills = Array.from(card.content.querySelectorAll('path.spiral-segment')).map((p) => p.getAttribute('style'));
-      expect(fills[2]).toContain('255 182 193'); // 01:00 — відключення з select
+      expect(fills[2]).toContain('255 182 193'); // 01:00: outage from the select
       expect(pattern[2]).toBe('0');
       expect(card.content.textContent).toContain('2.1 черга');
     });
@@ -948,7 +948,7 @@ describe('PowerOffTimelineCard', () => {
       card.hass = makeHass(selectState('4.1', { last_success_at: success, last_attempt_at: success }));
       const tooltip = card.content.querySelector('.updated-tooltip[role="tooltip"]');
       expect(tooltip.textContent).toMatch(/Дані з сайту отримано: (сьогодні|вчора) о \d{2}:\d{2}/);
-      expect(tooltip.textContent).not.toContain('Остання спроба'); // та сама мітка — не дублюємо
+      expect(tooltip.textContent).not.toContain('Остання спроба'); // same timestamp: not duplicated
       expect(card.content.querySelector('.updated-line').hasAttribute('title')).toBe(false);
       expect(card.content.querySelector('.updated-wrap').classList.contains('open')).toBe(false);
       card.content.querySelector('.updated-line').click();

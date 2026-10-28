@@ -1,7 +1,7 @@
-"""Скріншот dev-дашборда «Відключення» (Playwright, без ручного логіну).
+"""Screenshot of the dev "Power outages" dashboard (Playwright, no manual login).
 
 usage: screenshot.py <base_url> <access_token> <out.png> [--light] [--path /poweroff/0] [--card]
-  --card  — лише сама картка poweroff-timeline-card (замість усього екрана)
+  --card  — only the poweroff-timeline-card itself (instead of the whole page)
 """
 
 import asyncio
@@ -29,7 +29,10 @@ async def main() -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         ctx = await browser.new_context(
-            viewport={"width": 520, "height": 1000}, device_scale_factor=2, color_scheme=scheme, locale="uk-UA",
+            viewport={"width": 520, "height": 1000},
+            device_scale_factor=2,
+            color_scheme=scheme,
+            locale="uk-UA",
             timezone_id="Europe/Kyiv",
         )
         await ctx.add_init_script(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});")
@@ -41,7 +44,7 @@ async def main() -> None:
         except Exception:
             await page.screenshot(path=out.replace(".png", "-error.png"), full_page=True)
             raise
-        await page.wait_for_timeout(1500)  # іконки / шрифти
+        await page.wait_for_timeout(1500)  # icons / fonts
         if "--card" in args:
             await card.screenshot(path=out)
         else:

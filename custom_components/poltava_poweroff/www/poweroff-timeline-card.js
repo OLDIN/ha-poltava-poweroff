@@ -1,7 +1,7 @@
 const CARD_VERSION = '1.1.0';
 
-// Власний шрифт картки: однаковий вигляд на будь-якій ОС/браузері (і однакові скриншоти в тестах).
-// Inter (SIL OFL 1.1), лише латиниця + кирилиця, ~67 КБ. Файли лежать поруч: www/fonts/.
+// The card's own font: the same look on any OS/browser (and identical screenshots in tests).
+// Inter (SIL OFL 1.1), Latin + Cyrillic only, ~67 KB. The files live next to the card: www/fonts/.
 const FONT_FAMILY = 'PoweroffInter';
 const FONT_STACK = `"${FONT_FAMILY}", var(--ha-font-family-body, Roboto), system-ui, sans-serif`;
 const FONT_BASE = '/local/poltava_poweroff/fonts/';
@@ -14,8 +14,8 @@ const FONT_FILES = [
 ];
 
 /**
- * @font-face всередині shadow DOM (де живуть картки HA) браузери ігнорують,
- * тому реєструємо шрифт глобально через FontFace API — один раз на сторінку.
+ * Browsers ignore @font-face inside shadow DOM (where HA cards live),
+ * so the font is registered globally via the FontFace API, once per page.
  */
 function loadCardFonts() {
   if (typeof FontFace === 'undefined' || !document.fonts || window.__poweroffFontsLoaded) return;
@@ -28,7 +28,7 @@ function loadCardFonts() {
       unicodeRange,
     });
     document.fonts.add(face);
-    face.load().catch(() => { /* немає файлу — лишається запасний шрифт зі стеку */ });
+    face.load().catch(() => { /* no file: the fallback font from the stack is used */ });
   });
 }
 
@@ -214,7 +214,7 @@ const CARD_STYLES = `
   .updated-line .updated-main { display: flex; align-items: center; gap: 6px; }
   .updated-line ha-icon { --mdc-icon-size: 16px; }
 
-  /* Tooltip над рядком «Графік оновлено»: hover/фокус на десктопі, тап на телефоні */
+  /* Tooltip above the "Графік оновлено" line: hover/focus on desktop, tap on phones */
   .updated-wrap { position: relative; display: inline-flex; justify-content: center; }
   .updated-tooltip {
     position: absolute;
@@ -269,8 +269,8 @@ class PowerOffTimelineCard extends HTMLElement {
       throw new Error('Please define an entity');
     }
     this.config = config;
-    this.selectedTab = 'today'; // 'today' або 'tomorrow'
-    this._userPickedTab = false; // після ручного вибору не перемикаємо таб автоматично
+    this.selectedTab = 'today'; // 'today' or 'tomorrow'
+    this._userPickedTab = false; // after a manual choice the tab is not switched automatically
     this._lastState = undefined;
     this._lastQueueState = undefined;
     this._lastRenderAt = 0;
@@ -279,7 +279,7 @@ class PowerOffTimelineCard extends HTMLElement {
     this._showDetails = false;
   }
 
-  /** select-сутність «черга для перегляду»: з конфіга або знайдена автоматично. */
+  /** The "view queue" select entity: from the config or discovered automatically. */
   findQueueEntity(hass) {
     if (this.config.queue_entity === false) return null;
     if (this.config.queue_entity) return hass.states[this.config.queue_entity] ? this.config.queue_entity : null;
@@ -297,8 +297,8 @@ class PowerOffTimelineCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
 
-    // hass приходить на КОЖНУ зміну будь-якої сутності в HA. Перемальовуємо тільки
-    // коли змінились наші сутності, або раз на хвилину (щоб рухалась мітка поточного часу).
+    // hass is set on EVERY state change of any entity in HA. Re-render only when our
+    // entities changed, or once a minute (so the current-time marker moves).
     const stateObj = hass.states[this.config.entity];
     const queueId = this.findQueueEntity(hass);
     const queueObj = queueId ? hass.states[queueId] : undefined;
@@ -339,7 +339,7 @@ class PowerOffTimelineCard extends HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'pot-actions';
 
-    // Чип черги (видно лише коли є select-сутність)
+    // Queue chip (shown only when the select entity exists)
     this.queueChip = document.createElement('button');
     this.queueChip.type = 'button';
     this.queueChip.className = 'queue-chip';
@@ -362,7 +362,7 @@ class PowerOffTimelineCard extends HTMLElement {
     actions.appendChild(this.daySwitcher);
     this.headerContainer.appendChild(actions);
 
-    // Меню вибору черги
+    // Queue picker menu
     this.queueMenu = document.createElement('div');
     this.queueMenu.className = 'queue-menu';
     this.queueMenu.hidden = true;
@@ -444,7 +444,7 @@ class PowerOffTimelineCard extends HTMLElement {
     this._hass.callService('select', 'select_option', { entity_id: entityId, option: queue });
   }
 
-  /** Звідки брати графік: select (черга для перегляду) або сам сенсор (стара поведінка). */
+  /** Where the schedule comes from: the select (view queue) or the sensor itself (old behaviour). */
   dataSource() {
     const sensor = this._hass.states[this.config.entity];
     const queueObj = this._queueEntityId ? this._hass.states[this._queueEntityId] : undefined;
@@ -474,8 +474,8 @@ class PowerOffTimelineCard extends HTMLElement {
     const nextOn = attrs.next_on;
     const now = new Date();
 
-    // Автоматично показуємо завтра, якщо сьогоднішні відключення вже минули (або їх немає),
-    // а на завтра графік є. Після ручного вибору таба користувачем — не втручаємось.
+    // Show tomorrow automatically when today's outages are over (or there are none)
+    // and tomorrow has a schedule. Once the user picked a tab manually, leave it alone.
     if (!this._userPickedTab && tomorrowPeriods.length > 0) {
       const nowHours = now.getHours() + now.getMinutes() / 60;
       const hasFutureToday = todayPeriods.some((period) => {
@@ -496,14 +496,14 @@ class PowerOffTimelineCard extends HTMLElement {
       ? (now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
       : -1;
 
-    // Короткий заголовок: на вузькій картці поруч ще чип черги й перемикач днів
+    // Short title: on a narrow card it shares the row with the queue chip and day switcher
     const isTodayTab = this.selectedTab === 'today';
     this.headerText.textContent = isTodayTab ? 'Сьогодні' : 'Завтра';
     this.headerText.title = isTodayTab ? 'Відключення сьогодні' : 'Відключення завтра';
     this.todayButton.classList.toggle('active', this.selectedTab === 'today');
     this.tomorrowButton.classList.toggle('active', this.selectedTab === 'tomorrow');
 
-    // Чип і меню черг
+    // Queue chip and menu
     this.queueChip.hidden = !queueObj;
     if (queueObj) {
       const isHome = shownQueue === this._homeQueue;
@@ -546,7 +546,7 @@ class PowerOffTimelineCard extends HTMLElement {
     periods.forEach((period) => {
       const startHour = Number(period.start);
       let endHour = Number(period.end);
-      // end == 0 означає кінець доби (24:00)
+      // end == 0 means the end of the day (24:00)
       if (endHour === 0 || endHour >= 24) {
         endHour = 24;
       }
@@ -561,9 +561,9 @@ class PowerOffTimelineCard extends HTMLElement {
 
   renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false) {
     const SEGMENT_COLORS = {
-      0: 'rgb(255 182 193)', // рожевий для відключення
-      1: 'rgb(144 238 144)', // світло-зелений для світла
-      2: '#ffee5f', // жовтий для переходів
+      0: 'rgb(255 182 193)', // pink: outage
+      1: 'rgb(144 238 144)', // light green: power on
+      2: '#ffee5f', // yellow: transitions
     };
     const ARC_WIDTH = 45;
     const INITIAL_RADIUS = 35;
@@ -580,7 +580,7 @@ class PowerOffTimelineCard extends HTMLElement {
       const slot = parseInt(pattern[i], 10);
       const color = SEGMENT_COLORS[slot] || SEGMENT_COLORS[1];
       const isCurrent = selectedTab === 'today' && i === currentIndex && !loading;
-      // Минулі години затемнюємо тільки для сьогодні — завтра ще все попереду
+      // Dim past hours only for today; for tomorrow everything is still ahead
       let opacity = selectedTab === 'today' && Math.floor(i / 2) < now.getHours() ? 0.65 : 1;
       if (loading) opacity = 0.3;
       const stroke = isCurrent ? `stroke="${SEGMENT_COLORS[slot] || 'rgb(144 238 144)'}" stroke-width="5"` : '';
@@ -643,10 +643,10 @@ class PowerOffTimelineCard extends HTMLElement {
   }
 
   /**
-   * Один рядок замість двох:
-   *   «Наступне відключення: 09:00 – 11:00» — коли світло є;
-   *   «Світло з'явиться о 11:00» — коли його вже немає;
-   *   «завтра» перед часом, якщо подія не сьогодні.
+   * One line instead of two:
+   *   "Наступне відключення: 09:00 – 11:00" (next outage) while power is on;
+   *   "Світло з'явиться о 11:00" (power returns at) while it is off;
+   *   "завтра" (tomorrow) before the time when the event is not today.
    */
   renderNextLine(nextOff, nextOn, loading) {
     if (loading) {
@@ -721,8 +721,8 @@ class PowerOffTimelineCard extends HTMLElement {
   }
 
   /**
-   * «Графік оновлено …» — коли графік востаннє ЗМІНИВСЯ.
-   * Tooltip (наведення / фокус / тап) — коли сайт востаннє успішно відповів, остання спроба й помилка.
+   * "Графік оновлено …" (schedule updated): when the schedule last CHANGED.
+   * The tooltip (hover / focus / tap) shows the last successful site check, the last attempt and the error.
    */
   renderUpdatedLine(entity) {
     const attrs = entity.attributes || {};

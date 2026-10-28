@@ -7,16 +7,16 @@ DOMAIN = "poltava_poweroff"
 
 POWEROFF_GROUP_CONF = "poweroff_group"
 
-UPDATE_INTERVAL = 300  # 5 minutes - баланс між актуальністю даних та навантаженням на сайт
+UPDATE_INTERVAL = 300  # 5 minutes: balance between freshness and load on the site
 
-# Базовий URL сайту. Можна перевизначити через змінну оточення (для dev/e2e з mock-сервером).
+# Site base URL. Can be overridden via an environment variable (dev/e2e against a mock server).
 BASE_URL = os.environ.get("POLTAVA_POWEROFF_BASE_URL", "https://energy-ua.info").rstrip("/")
 
-# Кеш графіка на диску (.storage/poltava_poweroff.<entry_id>)
+# On-disk schedule cache (.storage/poltava_poweroff.<entry_id>)
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}"
 
-# Скільки днів назад тримати графік у кеші
+# How many past days to keep in the cache
 CACHE_KEEP_DAYS = 2
 
 STATE_ON = "Power ON"
@@ -41,5 +41,5 @@ class PowerOffGroup(StrEnum):
 
 
 def group_display(group: str) -> str:
-    """'4-1' -> '4.1' (як показує сайт і картка)."""
+    """'4-1' -> '4.1' (as shown by the site and the card)."""
     return str(group).replace("-", ".")

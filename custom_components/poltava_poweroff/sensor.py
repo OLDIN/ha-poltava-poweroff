@@ -68,8 +68,8 @@ SENSOR_TYPES: tuple[PoltavaPowerOffSensorDescription, ...] = (
     ),
 )
 
-# Нові сенсори-мітки часу не дублюють великі атрибути (менше записів у recorder).
-# Старі три сенсори лишають атрибути як були — на них можуть посилатися дашборди/автоматизації.
+# The timestamp sensors don't duplicate the large attributes (less recorder data).
+# The original three sensors keep their attributes: dashboards/automations may rely on them.
 NO_ATTRIBUTES_KEYS = {"schedule_updated", "last_fetch"}
 
 
@@ -110,7 +110,7 @@ class PoltavaPowerOffSensor(CoordinatorEntity[PoltavaPowerOffCoordinator], Senso
             return None
         attrs = self.coordinator.queue_attributes(self.coordinator.home)
 
-        # poweroff_periods — для старих карток: сьогоднішні, а коли вони всі минули — завтрашні
+        # poweroff_periods (for old cards): today's periods, or tomorrow's once today's are all over
         now_dt = dt_util.now()
         has_future_today = any(
             period.to_datetime_period(now_dt.tzinfo)[1] > now_dt for period in self.coordinator.today_periods
@@ -119,4 +119,3 @@ class PoltavaPowerOffSensor(CoordinatorEntity[PoltavaPowerOffCoordinator], Senso
         if not has_future_today and attrs["poweroff_periods_tomorrow"]:
             active = attrs["poweroff_periods_tomorrow"]
         return {"poweroff_periods": active, **attrs}
-

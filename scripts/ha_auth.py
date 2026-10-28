@@ -1,7 +1,7 @@
-"""Надійний онбординг/логін HA і видача access-токена (замість bash+curl).
+"""Reliable HA onboarding/login that prints an access token (instead of bash+curl).
 
 usage: ha_auth.py <base_url> <username> <password>
-друкує access_token у stdout (останній рядок).
+prints the access_token to stdout (last line).
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.request
 
-CLIENT = None  # заповнюється з base
+CLIENT = None  # derived from base
 
 
 def _post(url, data, headers=None, form=False):
@@ -45,7 +45,7 @@ def main():
     base, user, pw = sys.argv[1], sys.argv[2], sys.argv[3]
     client = base if base.endswith("/") else base + "/"
 
-    # чекати готовності onboarding API
+    # wait for the onboarding API
     for _ in range(30):
         ob = _get_json(f"{base}/api/onboarding")
         if isinstance(ob, list):
@@ -53,42 +53,43 @@ def main():
         time.sleep(2)
 
     ob = _get_json(f"{base}/api/onboarding")
-    user_done = isinstance(ob, list) and next(
-        (s["done"] for s in ob if s["step"] == "user"), True
-    )
+    user_done = isinstance(ob, list) and next((s["done"] for s in ob if s["step"] == "user"), True)
 
     auth_code = None
     if isinstance(ob, list) and not user_done:
-        # створити owner
-        st, resp = _post(f"{base}/api/onboarding/users", {
-            "client_id": client, "name": "Admin",
-            "username": user, "password": pw, "language": "uk"})
+        # create the owner
+        st, resp = _post(
+            f"{base}/api/onboarding/users",
+            {"client_id": client, "name": "Admin", "username": user, "password": pw, "language": "uk"},
+        )
         auth_code = resp.get("auth_code")
-        # завершити решту кроків
-        _, tok = _post(f"{base}/auth/token", {
-            "client_id": client, "grant_type": "authorization_code",
-            "code": auth_code}, form=True)
+        # finish the remaining steps
+        _, tok = _post(
+            f"{base}/auth/token",
+            {"client_id": client, "grant_type": "authorization_code", "code": auth_code},
+            form=True,
+        )
         access = tok.get("access_token")
         for step in ("core_config", "analytics"):
-            _post(f"{base}/api/onboarding/{step}", {},
-                  headers={"Authorization": f"Bearer {access}"})
-        _post(f"{base}/api/onboarding/integration",
-              {"client_id": client, "redirect_uri": client},
-              headers={"Authorization": f"Bearer {access}"})
+            _post(f"{base}/api/onboarding/{step}", {}, headers={"Authorization": f"Bearer {access}"})
+        _post(
+            f"{base}/api/onboarding/integration",
+            {"client_id": client, "redirect_uri": client},
+            headers={"Authorization": f"Bearer {access}"},
+        )
         print(access)
         return
 
-    # onboarding вже пройдено -> логін через login_flow
-    st, flow = _post(f"{base}/auth/login_flow", {
-        "client_id": client, "handler": ["homeassistant", None],
-        "redirect_uri": client})
+    # onboarding already done -> log in via login_flow
+    st, flow = _post(
+        f"{base}/auth/login_flow", {"client_id": client, "handler": ["homeassistant", None], "redirect_uri": client}
+    )
     flow_id = flow.get("flow_id")
-    st, step = _post(f"{base}/auth/login_flow/{flow_id}", {
-        "client_id": client, "username": user, "password": pw})
+    st, step = _post(f"{base}/auth/login_flow/{flow_id}", {"client_id": client, "username": user, "password": pw})
     code = step.get("result")
-    st, tok = _post(f"{base}/auth/token", {
-        "client_id": client, "grant_type": "authorization_code",
-        "code": code}, form=True)
+    st, tok = _post(
+        f"{base}/auth/token", {"client_id": client, "grant_type": "authorization_code", "code": code}, form=True
+    )
     print(tok.get("access_token", ""))
 
 

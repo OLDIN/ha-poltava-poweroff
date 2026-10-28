@@ -14,7 +14,7 @@ coverage.xml
 .python-version
 .DS_Store
 node_modules/
-# Результати невдалого порівняння скриншотів (самі еталони *.png комітяться)
+# Output of failed snapshot comparisons (the reference *.png files are committed)
 tests/js/__snapshots__/*-diff.png
 
 # Home Assistant configuration

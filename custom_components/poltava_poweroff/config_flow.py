@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        # Випадний список «1.1 … 6.2» замість текстового поля; у даних лишається формат сайту «1-1»
+        # Dropdown "1.1 … 6.2" instead of a text field; the stored value keeps the site format "1-1"
         vol.Required(POWEROFF_GROUP_CONF): vol.In({g.value: group_display(g.value) for g in PowerOffGroup}),
     }
 )

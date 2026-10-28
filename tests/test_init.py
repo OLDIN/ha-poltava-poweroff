@@ -1,4 +1,4 @@
-"""Інтеграційний тест: справжнє HA-ядро піднімає інтеграцію, сайт лежить після першого запиту."""
+"""Integration test: a real HA core sets up the integration; the site goes down after the first fetch."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ async def test_setup_and_outage_keeps_sensors(hass: HomeAssistant) -> None:
     assert state.attributes["poweroff_periods_tomorrow"] == [{"start": 9.0, "end": 11.0}]
     assert state.attributes["data_stale"] is False
     assert hass.states.get("sensor.schedule_updated").state not in ("unknown", "unavailable")
-    # старі атрибути на next_power_on лишились (на них посилається дашборд)
+    # the old attributes on next_power_on are still there (dashboards rely on them)
     assert "next_on" in hass.states.get("sensor.next_power_on").attributes
 
     with patch(SCRAPER, AsyncMock(side_effect=ScraperError("HTTP 502"))):
@@ -69,7 +69,7 @@ async def test_view_queue_select(hass: HomeAssistant) -> None:
     assert state.attributes["queue"] == "2.1"
     assert state.attributes["poweroff_periods_today"] == [{"start": 1.0, "end": 3.0}]
     assert state.attributes["loading"] is False
-    # сенсор лишився по вашій черзі
+    # the sensor still follows the home queue
     assert hass.states.get("sensor.power_state").attributes["poweroff_periods_today"] == [{"start": 8.0, "end": 9.5}]
 
 

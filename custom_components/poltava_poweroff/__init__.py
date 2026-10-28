@@ -10,12 +10,16 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import PoltavaPowerOffCoordinator
 
 PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SELECT, Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
+
+# Configured from the UI only (config entries); there is no YAML configuration
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_REFRESH = "refresh"
 SERVICE_SCHEMA: vol.Schema = vol.Schema({})
@@ -49,7 +53,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         for entry in hass.config_entries.async_entries(DOMAIN):
             coordinator: PoltavaPowerOffCoordinator | None = getattr(entry, "runtime_data", None)
             if coordinator is not None:
-                await coordinator.async_refresh()  # без debounce — ручний виклик
+                await coordinator.async_refresh()  # no debounce: this is a manual call
 
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, async_handle_refresh, schema=SERVICE_SCHEMA)
 
@@ -57,14 +61,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def _async_register_card_resource(hass: HomeAssistant, url: str) -> None:
-    """Зареєструвати картку як lovelace-ресурс (storage-режим) з ?v=<версія>.
+    """Register the card as a Lovelace resource (storage mode) with ?v=<version>.
 
-    Якщо ресурс уже доданий вручну — лише оновлюємо ?v=, щоб браузер не тримав стару версію картки.
+    If the resource was added manually, only its ?v= is updated so browsers don't keep an old card.
     """
     lovelace = hass.data.get("lovelace")
     resources = getattr(lovelace, "resources", None) if lovelace else None
     if resources is None or not hasattr(resources, "async_create_item"):
-        return  # YAML-режим ресурсів — нічого не чіпаємо
+        return  # resources in YAML mode: leave them alone
     if not resources.loaded:
         await resources.async_load()
         resources.loaded = True
@@ -81,7 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Poltava Power Offline from a config entry."""
 
     coordinator = PoltavaPowerOffCoordinator(hass, entry)
-    # Спершу піднімаємо збережений графік: якщо сайт зараз лежить — стартуємо з кешу, а не з порожнечі
+    # Load the cached schedule first: if the site is down right now we start from cache, not from nothing
     await coordinator.async_load_cache()
     await coordinator.async_config_entry_first_refresh()
 

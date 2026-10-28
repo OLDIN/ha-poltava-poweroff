@@ -1,6 +1,6 @@
-"""Перезняти скріни для README (pics/*.png) у локальному HA з mock energy-ua.
+"""Re-take the README screenshots (pics/*.png) in a local HA with the energy-ua mock.
 
-Викликається з `scripts/dev_ha_ui.sh readme` (HA і mock мають бути запущені).
+Called by `scripts/dev_ha_ui.sh readme` (HA and the mock must be running).
 usage: readme_screenshots.py <ha_base_url> <access_token> <mock_base_url> <out_dir>
 """
 
@@ -37,15 +37,29 @@ async def main() -> None:
     post(f"{MOCK}/_test/mode", {"mode": "ok"})
     post(f"{MOCK}/_test/delay", {"seconds": 0})
     post(f"{MOCK}/_test/schedule", SCHEDULE)
-    post(f"{BASE}/api/services/select/select_option", {"entity_id": "select.poweroff_view_queue", "option": "4.1"}, True)
+    post(
+        f"{BASE}/api/services/select/select_option", {"entity_id": "select.poweroff_view_queue", "option": "4.1"}, True
+    )
     refresh()
 
-    tokens = {"access_token": TOKEN, "token_type": "Bearer", "expires_in": 1800, "hassUrl": BASE,
-              "clientId": BASE + "/", "expires": int(time.time() * 1000) + 1800000, "refresh_token": ""}
+    tokens = {
+        "access_token": TOKEN,
+        "token_type": "Bearer",
+        "expires_in": 1800,
+        "hassUrl": BASE,
+        "clientId": BASE + "/",
+        "expires": int(time.time() * 1000) + 1800000,
+        "refresh_token": "",
+    }
     async with async_playwright() as p:
         browser = await p.chromium.launch()
-        ctx = await browser.new_context(viewport={"width": 440, "height": 1400}, device_scale_factor=2,
-                                        color_scheme="dark", locale="uk-UA", timezone_id="Europe/Kyiv")
+        ctx = await browser.new_context(
+            viewport={"width": 440, "height": 1400},
+            device_scale_factor=2,
+            color_scheme="dark",
+            locale="uk-UA",
+            timezone_id="Europe/Kyiv",
+        )
         await ctx.add_init_script(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))});")
         page = await ctx.new_page()
 
@@ -62,14 +76,16 @@ async def main() -> None:
         await card.locator(".queue-chip").click()
         await page.wait_for_timeout(300)
         box = await card.bounding_box()
-        await page.screenshot(path=str(OUT / "card_queue_switcher.png"),
-                              clip={"x": box["x"], "y": box["y"], "width": box["width"], "height": 420})
+        await page.screenshot(
+            path=str(OUT / "card_queue_switcher.png"),
+            clip={"x": box["x"], "y": box["y"], "width": box["width"], "height": 420},
+        )
         await card.locator(".queue-chip").click()
 
         await page.locator("hui-calendar-card").screenshot(path=str(OUT / "calendar.png"))
         await page.locator("hui-entities-card").screenshot(path=str(OUT / "sensors.png"))
 
-        # сайт лежить: банер + tooltip з часом останньої вдалої перевірки
+        # site down: banner + tooltip with the last successful check
         post(f"{MOCK}/_test/mode", {"mode": "http500"})
         refresh()
         card = await open_dashboard()

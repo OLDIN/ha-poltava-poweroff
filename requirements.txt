@@ -1,14 +1,14 @@
-# Залежності для тестів і локального Home Assistant (devcontainer, scripts/setup_dev_env.sh).
-# pytest-homeassistant-custom-component закріплює відповідну версію homeassistant (0.13.316 → HA 2026.2.3).
-# Оновлюючи її, звірте версії нижче з homeassistant/package_constraints.txt нової версії HA.
+# Dependencies for tests and a local Home Assistant (devcontainer, scripts/setup_dev_env.sh).
+# pytest-homeassistant-custom-component pins the matching homeassistant version (0.13.316 -> HA 2026.2.3).
+# When upgrading it, align the versions below with homeassistant/package_constraints.txt of the new HA.
 pytest-homeassistant-custom-component==0.13.316
 
-# Інтеграція (як у manifest.json)
+# The integration itself (as in manifest.json)
 beautifulsoup4>=4.12.0
 cloudscraper>=1.2.71
 brotli>=1.0.9
 
-# Без цих пакетів фронтенд локального HA зависає на "Loading data" (падає get_services)
+# Without these the local HA frontend hangs on "Loading data" (get_services fails)
 hassil==3.5.0
 home-assistant-intents==2026.1.28
 ha-ffmpeg==3.2.2
@@ -17,7 +17,7 @@ PyTurboJPEG==1.8.0
 pymicro-vad==1.0.1
 pyspeex-noise==1.0.2
 
-# Інструменти розробки
+# Development tools
 pre-commit>=3.7.1
 ruff>=0.5.0
 mypy>=1.8.0
