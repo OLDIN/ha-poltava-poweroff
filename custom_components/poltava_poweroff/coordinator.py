@@ -1,12 +1,12 @@
 """Provides the PoltavaPowerOffCoordinator class for polling power off periods.
 
-Ключові ідеї:
-  * графік зберігається по **абсолютних датах** (а не «сьогодні/завтра») і кешується на диску:
-    сайт лежить → показуємо останній добрий графік; рестарт HA → графік з кешу;
-    опівночі «завтра» само стає «сьогодні»;
-  * «ваша» черга (з налаштувань) — для сенсорів, календаря й автоматизацій, оновлюється завжди;
-  * «черга для перегляду» (select-сутність) — лише для картки; у фоні опитуються тільки
-    ваша й остання вибрана черга, решта береться з кешу або підтягується в момент перемикання.
+Key ideas:
+  * the schedule is stored by **absolute date** (not "today/tomorrow") and cached on disk:
+    site down -> keep showing the last good schedule; HA restart -> schedule from cache;
+    at midnight "tomorrow" becomes "today" by itself;
+  * the configured ("home") queue drives sensors, the calendar and automations and is always polled;
+  * the "view" queue (select entity) is for the card only; in the background only the home queue
+    and the last selected one are polled, others come from cache or are fetched on switch.
 """
 
 from __future__ import annotations
@@ -48,18 +48,18 @@ Schedule = dict[str, list[tuple[float, float]]]  # "YYYY-MM-DD" -> [(start, end)
 
 @dataclass
 class QueueState:
-    """Графік однієї черги + метадані свіжості."""
+    """Schedule of one queue plus freshness metadata."""
 
     group: str
     schedule: Schedule = field(default_factory=dict)
-    changed_at: datetime | None = None  # коли графік востаннє ЗМІНИВСЯ
-    success_at: datetime | None = None  # коли сайт востаннє успішно відповів
-    attempt_at: datetime | None = None  # остання спроба (вдала чи ні)
+    changed_at: datetime | None = None  # when the schedule last CHANGED
+    success_at: datetime | None = None  # last successful response from the site
+    attempt_at: datetime | None = None  # last attempt, successful or not
     error: str | None = None
     failures: int = 0
     loading: bool = False
 
-    # -- дати
+    # -- dates
     @staticmethod
     def _today() -> date:
         return dt_util.now().date()
@@ -91,9 +91,9 @@ class QueueState:
     def is_stale(self) -> bool:
         return self.error is not None
 
-    # -- зміни
+    # -- updates
     def apply(self, today: list[PowerOffPeriod] | None, tomorrow: list[PowerOffPeriod] | None, now: datetime) -> bool:
-        """Застосувати відповідь сайту. None за день = «немає даних» → не затираємо відоме."""
+        """Apply a site response. None for a day means "no data": keep what we already know."""
         self.attempt_at = now
         self.success_at = now
         self.error = None
@@ -123,7 +123,7 @@ class QueueState:
     def is_fresh(self, max_age: timedelta) -> bool:
         return self.success_at is not None and dt_util.now() - self.success_at < max_age
 
-    # -- (де)серіалізація для Store
+    # -- (de)serialization for Store
     def to_json(self) -> dict[str, Any]:
         return {
             "schedule": {day: [list(p) for p in periods] for day, periods in self.schedule.items()},
@@ -171,7 +171,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     @property
     def api(self) -> EnergyUaScrapper:
-        """Скрапер вашої черги (зворотна сумісність, тести патчать саме його)."""
+        """Scraper of the home queue (backwards compatibility; tests patch this one)."""
         return self._scrapers[str(self.group)]
 
     def _scraper(self, group: str) -> EnergyUaScrapper:
@@ -192,7 +192,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
     def view(self) -> QueueState:
         return self.queue_state(self.view_group)
 
-    # Властивості вашої черги — їх читають сенсори, календар і тести
+    # Home queue properties, used by sensors, the calendar and tests
     @property
     def schedule(self) -> Schedule:
         return self.home.schedule
@@ -231,7 +231,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     @property
     def periods(self) -> list[PowerOffPeriod]:
-        """Всі періоди сьогодні + завтра (для calendar)."""
+        """All periods for today + tomorrow."""
         return self.today_periods + self.tomorrow_periods
 
     @property
@@ -253,7 +253,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------ cache
 
     async def async_load_cache(self) -> None:
-        """Підняти графіки з диска (викликається до першого запиту)."""
+        """Load schedules from disk (called before the first request)."""
         try:
             raw = await self._store.async_load()
         except Exception:
@@ -265,7 +265,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             for group, data in raw["groups"].items():
                 self.queues[group] = QueueState.from_json(group, data)
             self.view_group = raw.get("view_group") or self.view_group
-        elif raw.get("group"):  # формат 0.3.0-dev: один графік
+        elif raw.get("group"):  # 0.3.0-dev format: a single schedule
             self.queues[raw["group"]] = QueueState.from_json(raw["group"], raw)
         LOGGER.debug("Loaded cached schedules: %s", {g: q.schedule for g, q in self.queues.items()})
 
@@ -285,7 +285,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
     # ----------------------------------------------------------------- fetch
 
     async def _fetch_queue(self, group: str) -> QueueState:
-        """Запитати сайт для черги. Помилку записує в стан черги й прокидає далі."""
+        """Fetch a queue from the site. Errors are recorded on the queue state and re-raised."""
         state = self.queue_state(group)
         lock = self._locks.setdefault(group, asyncio.Lock())
         async with lock:
@@ -296,7 +296,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
                 state.fail(err, now)
                 raise
             if state.apply(today, tomorrow, now):
-                LOGGER.info("Графік для черги %s змінився: %s", group, state.schedule)
+                LOGGER.info("Schedule for queue %s changed: %s", group, state.schedule)
         return state
 
     async def _async_update_data(self) -> dict:
@@ -306,9 +306,9 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             await self._fetch_queue(home)
         except Exception as err:
             if self.home.has_cached_data:
-                # Сайт лежить — лишаємо останній добрий графік і позначаємо його як застарілий.
+                # The site is down: keep the last good schedule and mark it as stale.
                 LOGGER.warning(
-                    "energy-ua недоступний (%s, спроба %d). Показую збережений графік від %s",
+                    "energy-ua is unavailable (%s, attempt %d). Showing the cached schedule from %s",
                     self.home.error,
                     self.home.failures,
                     self.home.success_at,
@@ -320,14 +320,14 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         if self.view_group != home:
             try:
                 await self._fetch_queue(self.view_group)
-            except Exception:  # noqa: BLE001 — черга для перегляду не критична
+            except Exception:  # noqa: BLE001 - the view queue is not critical
                 LOGGER.debug("Cannot refresh view queue %s: %s", self.view_group, self.view.error)
 
         await self._async_save()
         return {"home": home, "view": self.view_group}
 
     async def async_set_view_group(self, group: str, fetch: bool = True) -> None:
-        """Перемкнути чергу для перегляду (з select-сутності)."""
+        """Switch the view queue (called by the select entity)."""
         self.view_group = group
         state = self.view
         if fetch and not state.is_fresh(timedelta(seconds=UPDATE_INTERVAL)):
@@ -336,7 +336,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             try:
                 await self._fetch_queue(group)
             except Exception:  # noqa: BLE001
-                LOGGER.warning("Не вдалося завантажити графік черги %s: %s", group, state.error)
+                LOGGER.warning("Cannot load the schedule for queue %s: %s", group, state.error)
             finally:
                 state.loading = False
         await self._async_save()
@@ -345,7 +345,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------- attributes
 
     def queue_attributes(self, state: QueueState) -> dict[str, Any]:
-        """Атрибути для картки — однаковий формат для вашої черги й черги перегляду."""
+        """Card attributes; the same format for the home queue and the view queue."""
         return {
             "poweroff_periods_today": [{"start": p.start, "end": p.end} for p in state.today_periods],
             "poweroff_periods_tomorrow": [{"start": p.start, "end": p.end} for p in state.tomorrow_periods],
@@ -365,11 +365,11 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
 
     @staticmethod
     def intervals(state: QueueState) -> list[tuple[datetime, datetime]]:
-        """Відключення як абсолютні проміжки за вчора/сьогодні/завтра, злиті через північ.
+        """Outages as absolute intervals for yesterday/today/tomorrow, merged across midnight.
 
-        «сьогодні 21:00–24:00» + «завтра 00:00–02:00» → один проміжок 21:00–02:00, тож
-        «світло з'явиться» = 02:00, а не 00:00. Час рахується від локальної півночі —
-        коректно і в дні переходу на літній/зимовий час.
+        "today 21:00–24:00" + "tomorrow 00:00–02:00" -> one interval 21:00–02:00, so power
+        returns at 02:00, not 00:00. Times are counted from local midnight, which is also
+        correct on DST transition days.
         """
         today = dt_util.now().date()
         raw: list[tuple[datetime, datetime]] = []
@@ -377,7 +377,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             midnight = dt_util.start_of_local_day(day)
             for start_h, end_h in state.schedule.get(day.isoformat(), []):
                 if float(end_h) == 0.0 or float(end_h) < float(start_h):
-                    end_h = 24.0  # кінець доби
+                    end_h = 24.0  # end of the day
                 raw.append((midnight + timedelta(hours=float(start_h)), midnight + timedelta(hours=float(end_h))))
         raw.sort()
         merged: list[tuple[datetime, datetime]] = []
@@ -389,15 +389,15 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         return merged
 
     def _next_change(self, state: QueueState, on: bool) -> datetime | None:
-        """Наступне увімкнення (on=True) або вимкнення для черги."""
+        """Next power on (on=True) or power off for a queue."""
         now = dt_util.now()
         for start, end in self.intervals(state):
             if end <= now:
                 continue
             if on:
-                return end  # кінець поточного або наступного відключення
+                return end  # end of the current or the next outage
             if start > now:
-                return start  # початок наступного (поточне вже триває — пропускаємо)
+                return start  # start of the next one (skip the outage in progress)
         return None
 
     @property
@@ -416,14 +416,14 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         return STATE_OFF if self.get_event_at(dt_util.now()) else STATE_ON
 
     def get_event_at(self, at: datetime) -> CalendarEvent | None:
-        """Відключення, що триває в момент `at` (кінець не включно)."""
+        """The outage in progress at `at` (end exclusive)."""
         for start, end in self.intervals(self.home):
             if start <= at < end:
                 return self._get_calendar_event(start, end)
         return None
 
     def get_current_or_next_event(self) -> CalendarEvent | None:
-        """Поточне або найближче майбутнє відключення (так HA очікує від CalendarEntity.event)."""
+        """The current or next upcoming outage (what HA expects from CalendarEntity.event)."""
         now = dt_util.now()
         for start, end in self.intervals(self.home):
             if end > now:
@@ -431,7 +431,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         return None
 
     def get_events_between(self, start_date: datetime, end_date: datetime) -> list[CalendarEvent]:
-        """Усі відключення, що перетинаються з вікном (і ті, що накривають його повністю)."""
+        """All outages overlapping the window, including ones that cover it entirely."""
         return [
             self._get_calendar_event(start, end)
             for start, end in self.intervals(self.home)

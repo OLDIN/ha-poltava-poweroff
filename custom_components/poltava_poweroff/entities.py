@@ -18,7 +18,7 @@ class PowerOffPeriod:
         """Convert to datetime period."""
         now = dt_util.now()
 
-        # Визначаємо базову дату
+        # Base date: today or tomorrow
         if self.today:
             base_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         else:
@@ -27,15 +27,14 @@ class PowerOffPeriod:
         start = base_date + timedelta(hours=self.start)
         end = base_date + timedelta(hours=self.end)
 
-        # Якщо end менший або рівний start, це означає що період йде через північ
-        # Але якщо end == 0.0 (опівночі), це означає кінець доби (24:00)
-        # Тому додаємо день тільки якщо end < start (не <=, щоб уникнути проблем з end == start == 0)
+        # end < start means the period crosses midnight.
+        # end == 0.0 means midnight at the end of the day (24:00),
+        # so a day is added only when end < start (not <=, to avoid issues with end == start == 0).
         if end < start:
             end = end + timedelta(days=1)
         elif end == start and self.end == 0.0:
-            # Якщо end == start == 0.0, це означає період з 00:00 до 00:00 (опівночі до опівночі)
-            # Але це не має сенсу, тому це має бути помилка в даних
-            # Або це означає період, що закінчується в опівночі (24:00)
+            # end == start == 0.0 would be 00:00–00:00, which makes no sense,
+            # so treat it as a period ending at midnight (24:00).
             end = end + timedelta(days=1)
 
         return start, end

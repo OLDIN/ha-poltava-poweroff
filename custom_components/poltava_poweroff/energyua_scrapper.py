@@ -16,19 +16,22 @@ LOGGER = logging.getLogger(__name__)
 
 URL = BASE_URL + "/cherga/{}"
 
-REQUEST_TIMEOUT = 30  # секунд
+REQUEST_TIMEOUT = 30  # seconds
 
-# Маркери, за якими розпізнаємо «справжню» сторінку графіка energy-ua.
-# Якщо жодного немає (Cloudflare-челендж, сторінка техробіт, порожня відповідь) —
-# це помилка, а не «відключень немає».
+# Markers of a real energy-ua schedule page (the site's own Ukrainian text and CSS classes).
+# If none is present (Cloudflare challenge, maintenance page, empty response),
+# it is an error, not "no outages".
 _PAGE_MARKERS = ("Графік відключень", "Періоди відключень", "ch_day_title", "scale_info_periods")
 
 
 class ScraperError(Exception):
-    """Сайт недоступний або повернув неочікувану сторінку."""
+    """The site is unreachable or returned an unexpected page.
+
+    The message is shown on the card as is, so it is written in Ukrainian (UI text).
+    """
 
 
-DayPeriods = list[PowerOffPeriod] | None  # None = на сайті немає даних за цей день
+DayPeriods = list[PowerOffPeriod] | None  # None = the site has no data for that day
 
 
 class EnergyUaScrapper:
@@ -60,12 +63,12 @@ class EnergyUaScrapper:
                 scraper.get, URL.format(self.group), headers=headers, timeout=REQUEST_TIMEOUT
             )
             return response.status_code == 200
-        except Exception:  # noqa: BLE001 — будь-яка помилка тут означає «не вдалося з'єднатися»
+        except Exception:  # noqa: BLE001 - any error here means "cannot connect"
             return False
 
     @staticmethod
     def merge_periods(periods: list[PowerOffPeriod]) -> list[PowerOffPeriod]:
-        """Злити сусідні/перекриті періоди. Кінець 0.0 означає 24:00 (північ наприкінці доби)."""
+        """Merge adjacent/overlapping periods. An end of 0.0 means 24:00 (midnight at the end of the day)."""
         if not periods:
             return []
 
@@ -86,7 +89,7 @@ class EnergyUaScrapper:
 
     async def _fetch_page(self) -> str:
         scraper = await self._get_scraper()
-        # Додаємо заголовки для запобігання кешування
+        # Headers that prevent caching
         headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
@@ -95,7 +98,7 @@ class EnergyUaScrapper:
         url = URL.format(self.group)
         try:
             response = await asyncio.to_thread(scraper.get, url, headers=headers, timeout=REQUEST_TIMEOUT)
-        except Exception as err:  # мережа, DNS, таймаут, cloudscraper-челендж
+        except Exception as err:  # network, DNS, timeout, cloudscraper challenge
             LOGGER.debug("Request to %s failed: %r", url, err)
             kind = (
                 "таймаут"
@@ -119,23 +122,23 @@ class EnergyUaScrapper:
         """Get power off periods from the website.
 
         Returns:
-            Tuple of (today_periods, tomorrow_periods). Кожен елемент:
-              * list — сайт дав графік на цей день (порожній list = відключень немає);
-              * None — сайт не має даних на цей день (ще не опубліковано / «Немає даних»).
+            Tuple of (today_periods, tomorrow_periods). Each item is:
+              * a list: the site has a schedule for that day (empty list = no outages);
+              * None: the site has no data for that day (not published yet / "Немає даних").
 
         Raises:
-            ScraperError: сайт недоступний або сторінка не схожа на графік.
+            ScraperError: the site is unreachable or the page doesn't look like a schedule.
         """
         content = await self._fetch_page()
         return self.parse_page(content)
 
     def parse_page(self, content: str) -> tuple[DayPeriods, DayPeriods]:
-        """Розпарсити HTML сторінки черги."""
+        """Parse the HTML of a queue page."""
         soup = BeautifulSoup(content, "html.parser")
         today_results: list[PowerOffPeriod] = []
         tomorrow_results: list[PowerOffPeriod] = []
 
-        # Спочатку шукаємо блоки scale_info_periods для сьогодні та завтра
+        # First look for the scale_info_periods blocks for today and tomorrow
         all_scale_info_periods = soup.find_all("div", class_="scale_info_periods")
         today_periods_found = False
         tomorrow_periods_found = False
@@ -160,14 +163,14 @@ class EnergyUaScrapper:
                     tomorrow_results.extend(periods)
                     tomorrow_periods_found = True
 
-        # Чи є на сторінці погодинна шкала для дня (означає, що графік на день опубліковано,
-        # навіть якщо в ньому немає жодного відключення).
+        # Whether the page has an hourly scale for the day (the day's schedule is published,
+        # even if it contains no outages).
         today_scale_found = False
         tomorrow_scale_found = False
 
         if not today_periods_found or not tomorrow_periods_found:
             all_day_titles = soup.find_all("h4", class_="ch_day_title")
-            LOGGER.debug("Знайдено %d заголовків ch_day_title", len(all_day_titles))
+            LOGGER.debug("Found %d ch_day_title headers", len(all_day_titles))
             for day_title in all_day_titles:
                 if not isinstance(day_title, Tag):
                     continue
@@ -180,7 +183,7 @@ class EnergyUaScrapper:
                         scale_hours_block = sibling
                         break
                     if "ch_day_title" in sibling.get("class", []):
-                        break  # дійшли до наступного дня — шкали для цього дня немає
+                        break  # reached the next day: there is no scale for this one
 
                 if not scale_hours_block:
                     continue
@@ -207,9 +210,9 @@ class EnergyUaScrapper:
         )
 
         LOGGER.debug(
-            "Парсинг завершено: сьогодні=%s, завтра=%s",
-            "немає даних" if today_final is None else len(today_final),
-            "немає даних" if tomorrow_final is None else len(tomorrow_final),
+            "Parsed: today=%s, tomorrow=%s",
+            "no data" if today_final is None else len(today_final),
+            "no data" if tomorrow_final is None else len(tomorrow_final),
         )
         return today_final, tomorrow_final
 
@@ -221,15 +224,14 @@ class EnergyUaScrapper:
         if not periods_items or not isinstance(periods_items, Tag):
             return periods
 
-        # Парсимо кожен період з тексту типу "З 12:00 до 14:30"
-        # BeautifulSoup.get_text() автоматично видаляє HTML теги, тому час буде просто "12:00"
+        # Parse each period from text like "З 12:00 до 14:30" ("from 12:00 to 14:30")
+        # BeautifulSoup.get_text() strips HTML tags, so the time is just "12:00"
         period_spans = periods_items.find_all("span")
         for span in period_spans:
             if not isinstance(span, Tag):
                 continue
             text = span.get_text()
-            # Шукаємо патерн "З HH:MM до HH:MM"
-            # get_text() вже видалив <b> теги, тому шукаємо просто "З 12:00 до 14:30"
+            # Match "З HH:MM до HH:MM"; get_text() already removed the <b> tags
             match = re.search(r"З\s+(\d{1,2}:\d{2})\s+до\s+(\d{1,2}:\d{2})", text)
             if match:
                 start_str = match.group(1)

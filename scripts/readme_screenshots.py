@@ -1,6 +1,6 @@
-"""Перезняти скріни для README (pics/*.png) у локальному HA з mock energy-ua.
+"""Re-take the README screenshots (pics/*.png) in a local HA with the energy-ua mock.
 
-Викликається з `scripts/dev_ha_ui.sh readme` (HA і mock мають бути запущені).
+Called by `scripts/dev_ha_ui.sh readme` (HA and the mock must be running).
 usage: readme_screenshots.py <ha_base_url> <access_token> <mock_base_url> <out_dir>
 """
 
@@ -85,7 +85,7 @@ async def main() -> None:
         await page.locator("hui-calendar-card").screenshot(path=str(OUT / "calendar.png"))
         await page.locator("hui-entities-card").screenshot(path=str(OUT / "sensors.png"))
 
-        # сайт лежить: банер + tooltip з часом останньої вдалої перевірки
+        # site down: banner + tooltip with the last successful check
         post(f"{MOCK}/_test/mode", {"mode": "http500"})
         refresh()
         card = await open_dashboard()

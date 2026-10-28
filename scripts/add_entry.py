@@ -1,4 +1,4 @@
-"""Додати інтеграцію poltava_poweroff через справжній config flow (REST API).
+"""Add the poltava_poweroff integration through the real config flow (REST API).
 
 usage: add_entry.py <base_url> <token> <group>
 """

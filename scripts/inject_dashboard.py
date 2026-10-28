@@ -1,4 +1,4 @@
-"""Записати в .storage окремий dashboard «Відключення» з карткою (до першого старту HA).
+"""Write a separate "Power outages" dashboard with the card into .storage (before HA first starts).
 
 usage: inject_dashboard.py <config_dir>
 """
@@ -16,7 +16,7 @@ cards = [
     {"type": "calendar", "initial_view": "listWeek", "entities": ["calendar.poltava_poweroff_calendar"]},
     {
         "type": "entities",
-        "title": "Сенсори інтеграції",
+        "title": "Integration sensors",
         "entities": [
             "sensor.power_state",
             "sensor.next_power_off",
@@ -35,7 +35,7 @@ cards = [
             "minor_version": 1,
             "key": "lovelace.poweroff",
             "data": {
-                "config": {"title": "Відключення", "views": [{"title": "Відключення", "path": "0", "cards": cards}]}
+                "config": {"title": "Power outages", "views": [{"title": "Power outages", "path": "0", "cards": cards}]}
             },
         },
         ensure_ascii=False,
@@ -53,7 +53,7 @@ cards = [
                     {
                         "id": "poweroff",
                         "icon": "mdi:transmission-tower-off",
-                        "title": "Відключення",
+                        "title": "Power outages",
                         "url_path": "poweroff",
                         "show_in_sidebar": True,
                         "mode": "storage",
@@ -66,4 +66,4 @@ cards = [
         indent=2,
     )
 )
-print("dashboard «Відключення» записано (/poweroff/0)")
+print('"Power outages" dashboard written (/poweroff/0)')

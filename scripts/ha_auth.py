@@ -1,7 +1,7 @@
-"""Надійний онбординг/логін HA і видача access-токена (замість bash+curl).
+"""Reliable HA onboarding/login that prints an access token (instead of bash+curl).
 
 usage: ha_auth.py <base_url> <username> <password>
-друкує access_token у stdout (останній рядок).
+prints the access_token to stdout (last line).
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.request
 
-CLIENT = None  # заповнюється з base
+CLIENT = None  # derived from base
 
 
 def _post(url, data, headers=None, form=False):
@@ -45,7 +45,7 @@ def main():
     base, user, pw = sys.argv[1], sys.argv[2], sys.argv[3]
     client = base if base.endswith("/") else base + "/"
 
-    # чекати готовності onboarding API
+    # wait for the onboarding API
     for _ in range(30):
         ob = _get_json(f"{base}/api/onboarding")
         if isinstance(ob, list):
@@ -57,13 +57,13 @@ def main():
 
     auth_code = None
     if isinstance(ob, list) and not user_done:
-        # створити owner
+        # create the owner
         st, resp = _post(
             f"{base}/api/onboarding/users",
             {"client_id": client, "name": "Admin", "username": user, "password": pw, "language": "uk"},
         )
         auth_code = resp.get("auth_code")
-        # завершити решту кроків
+        # finish the remaining steps
         _, tok = _post(
             f"{base}/auth/token",
             {"client_id": client, "grant_type": "authorization_code", "code": auth_code},
@@ -80,7 +80,7 @@ def main():
         print(access)
         return
 
-    # onboarding вже пройдено -> логін через login_flow
+    # onboarding already done -> log in via login_flow
     st, flow = _post(
         f"{base}/auth/login_flow", {"client_id": client, "handler": ["homeassistant", None], "redirect_uri": client}
     )

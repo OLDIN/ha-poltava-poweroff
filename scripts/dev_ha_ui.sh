@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Піднімає СПРАВЖНІЙ Home Assistant (UI на :8124) з інтеграцією poltava_poweroff,
-# яка ходить не на energy-ua.info, а на локальний mock (:8798). Повністю автоматично:
-# onboarding, config entry, dashboard з карткою. Дозволяє «ламати» сайт і дивитись, що бачить користувач.
+# Starts a REAL Home Assistant (UI on :8124) with the poltava_poweroff integration,
+# talking to a local mock (:8798) instead of energy-ua.info. Fully automatic:
+# onboarding, config entry, a dashboard with the card. Lets you "break" the site and see what users see.
 #
-#   scripts/dev_ha_ui.sh up                 — підняти все (HA + mock)
+#   scripts/dev_ha_ui.sh up                 — start everything (HA + mock)
 #   scripts/dev_ha_ui.sh mode <ok|nodata|http500|garbage|timeout>
-#   scripts/dev_ha_ui.sh refresh            — примусово опитати сайт (сервіс poltava_poweroff.refresh)
-#   scripts/dev_ha_ui.sh restart            — перезапустити лише HA (перевірка кешу графіка)
-#   scripts/dev_ha_ui.sh show               — стан сенсорів
-#   scripts/dev_ha_ui.sh shot [name]        — скріншот дашборда → screenshots/<name>.png
-#   scripts/dev_ha_ui.sh readme             — перезняти скріни для README → pics/*.png
-#   scripts/dev_ha_ui.sh down               — зупинити
+#   scripts/dev_ha_ui.sh refresh            — poll the site now (poltava_poweroff.refresh service)
+#   scripts/dev_ha_ui.sh restart            — restart HA only (checks the schedule cache)
+#   scripts/dev_ha_ui.sh show               — sensor states
+#   scripts/dev_ha_ui.sh shot [name]        — dashboard screenshot -> screenshots/<name>.png
+#   scripts/dev_ha_ui.sh readme             — re-take the README screenshots -> pics/*.png
+#   scripts/dev_ha_ui.sh down               — stop
 #
-# Порт 8124 обрано, щоб не конфліктувати з ha-silpo (8123).
+# Port 8124 avoids a clash with ha-silpo (8123).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VENV="${VENV:-$PWD/.venv-ha}/bin"
@@ -34,9 +34,9 @@ cmd_up() {
   rm -rf "$CFG"; mkdir -p "$CFG/custom_components"
   ln -sfn "$PWD/custom_components/poltava_poweroff" "$CFG/custom_components/poltava_poweroff"
   cat > "$CFG/configuration.yaml" <<YAML
-# без default_config — швидший старт, без bluetooth (крешить на macOS при зупинці)
+# no default_config: faster start, no bluetooth (crashes on macOS on shutdown)
 homeassistant:
-  name: Полтава (dev)
+  name: Poltava (dev)
   latitude: 49.5883
   longitude: 34.5514
   elevation: 150
@@ -61,25 +61,25 @@ YAML
   POLTAVA_MOCK_PORT=$PORT_MOCK nohup "$VENV/python" scripts/mock_energyua.py > "$CFG/mock.log" 2>&1 &
   echo "mock PID $! ($MOCK)"
   nohup "$VENV/hass" --config "$CFG" > "$CFG/ha.log" 2>&1 &
-  echo "hass PID $! (чекаю $BASE ...)"
-  _wait_ha || { echo "HA не піднявся"; tail -30 "$CFG/ha.log"; exit 1; }
+  echo "hass PID $! (waiting for $BASE ...)"
+  _wait_ha || { echo "HA did not start"; tail -30 "$CFG/ha.log"; exit 1; }
   ACCESS=$("$VENV/python" scripts/ha_auth.py "$BASE" admin poweroff1234 | tail -1)
-  [ -z "$ACCESS" ] && { echo "auth не вдався"; exit 1; }
+  [ -z "$ACCESS" ] && { echo "auth failed"; exit 1; }
   echo "$ACCESS" > "$CFG/.ha_token"
   "$VENV/python" scripts/add_entry.py "$BASE" "$ACCESS" "$GROUP"
   for _ in $(seq 1 20); do cmd_show 2>/dev/null | grep -q "sensor.power_state" && break; sleep 2; done
-  echo ""; echo "✅ ГОТОВО. UI: $BASE/poweroff/0  (admin / poweroff1234)"
+  echo ""; echo "✅ READY. UI: $BASE/poweroff/0  (admin / poweroff1234)"
   cmd_show
 }
 
 cmd_restart() {
-  # Перезапуск лише HA (mock і .storage лишаються) — перевірка, що графік піднімається з кешу
+  # Restart HA only (mock and .storage stay): checks that the schedule comes back from cache
   pkill -TERM -f "hass --config $CFG" 2>/dev/null || true
   for _ in $(seq 1 20); do [ -z "$(_hass_pids)" ] && break; sleep 1; done
   _wait_port_free "$PORT_HA" || true
   nohup "$VENV/hass" --config "$CFG" > "$CFG/ha.log" 2>&1 &
-  echo "hass PID $! (чекаю...)"
-  _wait_ha || { echo "HA не піднявся"; tail -30 "$CFG/ha.log"; exit 1; }
+  echo "hass PID $! (waiting...)"
+  _wait_ha || { echo "HA did not start"; tail -30 "$CFG/ha.log"; exit 1; }
   for _ in $(seq 1 20); do cmd_show 2>/dev/null | grep -q "sensor.power_state" && break; sleep 2; done
   cmd_show
 }
@@ -89,7 +89,7 @@ cmd_show() {
   curl -s "$BASE/api/states" -H "Authorization: Bearer $ACCESS" | "$VENV/python" -c "
 import sys, json
 try: d = json.load(sys.stdin)
-except Exception: print('  (HA ще не готовий)'); sys.exit()
+except Exception: print('  (HA is not ready yet)'); sys.exit()
 keys = ('power', 'schedule', 'poweroff')
 for x in d if isinstance(d, list) else []:
     if any(k in x['entity_id'] for k in keys):
@@ -125,12 +125,12 @@ cmd_down() {
   pkill -9 -f "hass --config $CFG" 2>/dev/null || true
   pkill -9 -f "scripts/mock_energyua.py" 2>/dev/null || true
   for p in "$PORT_HA" "$PORT_MOCK"; do _pids_on "$p" | xargs kill -9 2>/dev/null || true; done
-  echo "зупинено"
+  echo "stopped"
 }
 
 case "${1:-up}" in
   up) cmd_up ;;
-  mode) cmd_mode "${2:?режим: ok|nodata|http500|garbage|timeout}" ;;
+  mode) cmd_mode "${2:?mode: ok|nodata|http500|garbage|timeout}" ;;
   refresh) cmd_refresh ;;
   restart) cmd_restart ;;
   show) cmd_show ;;

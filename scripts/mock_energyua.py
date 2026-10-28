@@ -1,14 +1,14 @@
-"""Mock-сервер energy-ua.info для dev/e2e.
+"""Mock energy-ua.info server for dev/e2e.
 
-Віддає сторінку /cherga/<група> у тому ж HTML-форматі, що й справжній сайт,
-і має тестові ручки, щоб «ламати» сайт наживо:
+Serves /cherga/<group> in the same HTML format as the real site (in Ukrainian, like the site)
+and has test endpoints to "break" the site live:
 
-  GET  /_test/state                 — поточний режим і графік
+  GET  /_test/state                 — current mode and schedule
   POST /_test/mode   {"mode": "..."} — ok | nodata | http500 | garbage | timeout
   POST /_test/schedule {"group": "4-1", "today": [[8, 9.5]], "tomorrow": [[9, 11]] | null}
-  POST /_test/delay  {"seconds": 2}  — повільний сайт (видно стан «завантажую» в картці)
+  POST /_test/delay  {"seconds": 2}  — slow site (shows the card's loading state)
 
-Запуск окремо:  python scripts/mock_energyua.py   (порт з POLTAVA_MOCK_PORT, типово 8798)
+Standalone:  python scripts/mock_energyua.py   (port from POLTAVA_MOCK_PORT, default 8798)
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def _hhmm(value: float) -> str:
 
 def _day_block(title: str, label: str, periods: list | None) -> str:
     if periods is None:
-        # день оголошено, але графіка ще немає (як на справжньому сайті ввечері)
+        # the day is announced but has no schedule yet (like the real site in the evening)
         return f'<h4 class="ch_day_title">Відключення {title}</h4>'
     hours = []
     for hour in range(24):

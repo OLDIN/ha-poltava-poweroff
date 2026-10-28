@@ -1,8 +1,8 @@
-"""Select «Черга для перегляду» — яку чергу показує картка.
+"""Select "view queue": which queue the card shows.
 
-Не впливає на сенсори/календар/автоматизації: вони завжди по вашій черзі з налаштувань.
-Вибір переживає рестарт (RestoreEntity). Атрибути мають той самий формат, що й у
-sensor.power_state, плюс home_queue і loading — картка читає їх напряму.
+It does not affect sensors, the calendar or automations: they always follow the configured queue.
+The choice survives restarts (RestoreEntity). Attributes use the same format as
+sensor.power_state, plus home_queue and loading; the card reads them directly.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ async def async_setup_entry(
 
 
 class PoltavaViewQueueSelect(CoordinatorEntity[PoltavaPowerOffCoordinator], SelectEntity, RestoreEntity):
-    """Яку чергу показувати в картці."""
+    """Which queue the card shows."""
 
     _attr_icon = "mdi:format-list-numbered"
     _attr_entity_category = EntityCategory.CONFIG
@@ -54,7 +54,7 @@ class PoltavaViewQueueSelect(CoordinatorEntity[PoltavaPowerOffCoordinator], Sele
         if last and last.state in OPTIONS:
             group = last.state.replace(".", "-")
             if group != self.coordinator.view_group:
-                # Кеш уже піднятий; свіжі дані підтягнуться у фоні, не блокуючи старт HA
+                # The cache is already loaded; fresh data is fetched in the background without blocking HA startup
                 self.hass.async_create_task(self.coordinator.async_set_view_group(group))
 
     @property
