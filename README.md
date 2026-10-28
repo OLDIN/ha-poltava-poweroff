@@ -245,34 +245,34 @@ If the card snapshots differ only because CI renders with another Chromium build
 - *Require status checks to pass* — select the five jobs above;
 - *Block force pushes* and *Restrict deletions*.
 
-With `main` protected, release from a PR: bump the version in the branch (`python scripts/bump_version.py patch --notes`, commit), merge, then tag the merge commit and create the release (`git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin vX.Y.Z && gh release create vX.Y.Z --notes-file RELEASE_NOTES_X.Y.Z.md`).
+With `main` protected, every release goes through a PR; `scripts/bump_version.py` does both halves (see [Version Management](#version-management)).
 
 ### Version Management
 
-For developers, use the automated version bump script for easy releases:
+Releases are two commands, one before and one after the PR merge:
 
 ```bash
-# Fully automated release: commit, tag, push, GitHub Release
-python scripts/bump_version.py patch -p -n -r
+# 1. Bump, write RELEASE_NOTES_X.Y.Z.md, commit, push the branch and open a PR.
+#    Run it on your feature branch, or on main (it then creates release/vX.Y.Z).
+python scripts/bump_version.py patch --pr      # or minor / major
 
-# Semi-automated (commit & tag, manual push)
-python scripts/bump_version.py patch --commit
-
-# Manual workflow (traditional)
-python scripts/bump_version.py patch
-git add custom_components/poltava_poweroff/manifest.json
-git commit -m "Bump version to X.Y.Z"
-git tag -a vX.Y.Z -m "Release X.Y.Z"
-git push origin main --tags
+# 2. After the PR is merged (CI green): update main, tag the merged commit,
+#    push only the tag and create the GitHub Release from the notes.
+python scripts/bump_version.py release
 ```
 
-**Options:**
-- `-c, --commit`: Automatically commit changes and create git tag
-- `-p, --push`: Push commits and tags to GitHub (implies `--commit`)
-- `-n, --notes`: Generate release notes from commit messages (`RELEASE_NOTES_X.Y.Z.md`)
-- `-r, --release`: Also create a GitHub Release from those notes (needs `gh`, used with `-p -n`)
+Nothing is ever pushed to `main` directly. Both commands accept `-d/--dry-run` to print the git/gh commands without running them.
 
-See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for detailed documentation.
+**Bump options** (`major|minor|patch`):
+- `-n, --notes`: only generate `RELEASE_NOTES_X.Y.Z.md` (release dates use Kyiv time)
+- `-c, --commit`: commit the bump and notes (creates `release/vX.Y.Z` when run on `main`)
+- `-p, --pr`: commit, push the branch and open a pull request (needs `gh auth login`)
+
+**Release options**: `--no-gh-release` pushes only the tag.
+
+`release` refuses to run with a dirty tree, when `main` can't be fast-forwarded, or when the tag already exists on GitHub (i.e. the version wasn't bumped).
+
+See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for details.
 
 ## Versioning and Updates
 
@@ -314,50 +314,21 @@ If the update doesn't appear or you have issues:
 
 ### For Developers
 
-To bump the version when making changes:
+Releases use `scripts/bump_version.py`, see [Version Management](#version-management):
 
 ```bash
-# Patch version (bug fixes): 0.1.0 -> 0.1.1
-python scripts/bump_version.py patch
-
-# Minor version (new features): 0.1.0 -> 0.2.0
-python scripts/bump_version.py minor
-
-# Major version (breaking changes): 0.1.0 -> 1.0.0
-python scripts/bump_version.py major
+python scripts/bump_version.py patch --pr   # bug fixes:        0.1.0 -> 0.1.1
+python scripts/bump_version.py minor --pr   # new features:     0.1.0 -> 0.2.0
+python scripts/bump_version.py major --pr   # breaking changes: 0.1.0 -> 1.0.0
+# merge the PR, then:
+python scripts/bump_version.py release
 ```
 
-The script will:
-1. Update `manifest.json` with the new version
-2. Show you the git commands to commit and tag the release
-
-**Release workflow:**
-
-**Minimum required (HACS will detect updates):**
-1. Make your changes
-2. Bump version: `python scripts/bump_version.py patch|minor|major`
-3. Commit and push: `git commit -am "Bump version to X.Y.Z" && git push origin main`
-
-**Recommended (with git tags for better tracking):**
-1. Make your changes
-2. Bump version: `python scripts/bump_version.py patch|minor|major`
-3. Commit changes: `git commit -am "Description of changes"`
-4. Tag release: `git tag -a v0.1.1 -m "Release 0.1.1"`
-5. Push: `git push origin main --tags`
-
 **How HACS detects updates:**
-- HACS periodically checks the repository (every 4-6 hours) and reads `manifest.json`
-- It compares the version in the repo with the installed version
-- If the repo version is higher, it shows an update notification
-- Users can also manually trigger a check in HACS → Integrations → "Check for updates"
-
-**Note:**
-- **Git tags are NOT required** for HACS to detect updates. HACS reads `manifest.json` from the main branch.
-- Git tags and GitHub releases are **optional** but useful for:
-  - Better version tracking in git history
-  - GitHub releases with changelog/notes
-  - Ability to checkout specific versions
-  - Professional project organization
+- HACS periodically checks the repository and offers the **latest GitHub Release** (the tag created by `release`)
+- Only repositories without any releases fall back to the newest commit of the default branch
+- So a version bump merged into `main` reaches users only after `bump_version.py release`
+- Users can trigger a check manually: HACS → ⋮ → **Update information**
 
 <!-- References -->
 
