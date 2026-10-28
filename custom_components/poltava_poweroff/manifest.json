@@ -5,6 +5,9 @@
     "frontend",
     "lovelace"
   ],
+  "categories": [
+    "energy"
+  ],
   "codeowners": [
     "@tsdaemon",
     "@OLDIN"
