@@ -28,6 +28,11 @@ cards = [
         ],
     },
 ]
+battery_card = {
+    "type": "custom:poweroff-timeline-card",
+    "entity": "sensor.power_state",
+    "battery_entity": "sensor.dev_battery_runtime",
+}
 (storage / "lovelace.poweroff").write_text(
     json.dumps(
         {
@@ -35,7 +40,14 @@ cards = [
             "minor_version": 1,
             "key": "lovelace.poweroff",
             "data": {
-                "config": {"title": "Power outages", "views": [{"title": "Power outages", "path": "0", "cards": cards}]}
+                "config": {
+                    "title": "Power outages",
+                    "views": [
+                        {"title": "Power outages", "path": "0", "cards": cards},
+                        # Card with the battery runout mark; the sensor state is set via the REST API
+                        {"title": "Battery", "path": "battery", "cards": [battery_card]},
+                    ],
+                }
             },
         },
         ensure_ascii=False,
@@ -66,4 +78,4 @@ cards = [
         indent=2,
     )
 )
-print('"Power outages" dashboard written (/poweroff/0)')
+print('"Power outages" dashboard written (/poweroff/0, /poweroff/battery)')

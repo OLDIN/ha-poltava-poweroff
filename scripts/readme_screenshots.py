@@ -11,7 +11,9 @@ import json
 import sys
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from playwright.async_api import async_playwright
 
@@ -93,6 +95,24 @@ async def main() -> None:
         await page.wait_for_timeout(400)
         await card.screenshot(path=str(OUT / "card_site_down.png"))
         post(f"{MOCK}/_test/mode", {"mode": "ok"})
+
+        # Battery runout mark: an outage from the current hour for 4 h, 2.5 h of battery
+        # -> the red line lands inside the outage and the card warns the charge is not enough
+        hour = datetime.now(ZoneInfo("Europe/Kyiv")).hour
+        post(f"{MOCK}/_test/schedule", {"today": [[hour, min(hour + 4, 24) % 24]], "tomorrow": SCHEDULE["tomorrow"]})
+        refresh()
+        post(
+            f"{BASE}/api/states/sensor.dev_battery_runtime",
+            {"state": "2.5", "attributes": {"unit_of_measurement": "h", "friendly_name": "Battery runtime"}},
+            auth=True,
+        )
+        await page.goto(BASE + "/poweroff/battery")
+        card = page.locator("poweroff-timeline-card")
+        await card.wait_for(timeout=60000)
+        await page.wait_for_timeout(2000)
+        await card.screenshot(path=str(OUT / "card_battery.png"))
+        post(f"{MOCK}/_test/schedule", SCHEDULE)
+        refresh()
         await browser.close()
     print("📸", ", ".join(sorted(f.name for f in OUT.glob("*.png"))))
 
