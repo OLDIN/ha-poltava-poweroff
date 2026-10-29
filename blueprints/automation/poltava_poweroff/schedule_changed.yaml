@@ -1,0 +1,107 @@
+# Notifies when the outage schedule of the home queue is published or changes.
+# Driven by event.poweroff_schedule_changed (one event per changed day).
+blueprint:
+  name: Сповіщення про зміну графіка відключень
+  description: >-
+    Надсилає сповіщення, коли energy-ua публікує графік на завтра або змінює
+    графік на сьогодні чи завтра (інтеграція Poltava Power Offline).
+  domain: automation
+  source_url: https://github.com/OLDIN/ha-poltava-poweroff/blob/main/blueprints/automation/poltava_poweroff/schedule_changed.yaml
+  input:
+    event_entity:
+      name: Подія зміни графіка
+      default: event.poweroff_schedule_changed
+      selector:
+        entity:
+          filter:
+            - integration: poltava_poweroff
+              domain: event
+    days:
+      name: Про які дні повідомляти
+      default: [today, tomorrow]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Сьогодні
+              value: today
+            - label: Завтра
+              value: tomorrow
+            - label: Пізніші дні
+              value: later
+    event_types:
+      name: Які зміни
+      default: [published, changed]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Опубліковано графік на новий день
+              value: published
+            - label: Змінився вже відомий графік
+              value: changed
+    notify_devices:
+      name: Телефони для сповіщень
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: mobile_app
+    extra_actions:
+      name: Додаткові дії (необов'язково)
+      description: "Доступні змінні: day, date, periods_text, previous_periods_text, outage_hours, queue, event_type."
+      default: []
+      selector:
+        action: {}
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input event_entity
+
+variables:
+  days: !input days
+  event_types: !input event_types
+  notify_devices: !input notify_devices
+  attrs: "{{ trigger.to_state.attributes if trigger.to_state else {} }}"
+  event_type: "{{ attrs.get('event_type', '') }}"
+  day: "{{ attrs.get('day', '') }}"
+  date: "{{ attrs.get('date', '') }}"
+  queue: "{{ attrs.get('queue', '') }}"
+  periods_text: "{{ attrs.get('periods_text', '') }}"
+  previous_periods_text: "{{ attrs.get('previous_periods_text', '') }}"
+  outage_hours: "{{ attrs.get('outage_hours', 0) }}"
+  day_label: >-
+    {{ {'today': 'сьогодні', 'tomorrow': 'завтра'}.get(day, date) }}
+  title: >-
+    {{ '📅 Графік на ' ~ day_label if event_type == 'published' else '⚠️ Графік на ' ~ day_label ~ ' змінився' }}
+  text: >-
+    {% set now_text = periods_text if periods_text else 'відключень немає' %}
+    {% set hours = (outage_hours | float(0)) %}
+    Черга {{ queue }}: {{ now_text }}{{ ' (' ~ (hours | round(1) | string | replace('.0', '')) ~ ' год без світла)' if hours > 0 else '' }}.
+    {%- if event_type == 'changed' %}
+    Було: {{ previous_periods_text if previous_periods_text else 'відключень немає' }}.
+    {%- endif %}
+
+conditions:
+  # Skip restores after a restart (from_state is missing or unavailable) and the entity becoming unavailable
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none and trigger.from_state.state != 'unavailable'
+         and trigger.to_state is not none and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+  - condition: template
+    value_template: "{{ day in days and event_type in event_types }}"
+
+actions:
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        # The mobile_app notify service is named after the device: notify.mobile_app_<device_name>
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ text }}"
+  - choose: []
+    default: !input extra_actions
