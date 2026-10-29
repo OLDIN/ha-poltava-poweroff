@@ -172,7 +172,7 @@ def get_latest_tag(exclude: str | None = None) -> str | None:
 def get_commits_since_tag(tag: str | None) -> list[str]:
     """Commit subjects since ``tag``, without version-bump commits."""
     rev = [f"{tag}..HEAD"] if tag else []
-    out = git("log", *rev, "--pretty=format:%s")
+    out = git("log", *rev, "--no-merges", "--pretty=format:%s")
     return [line for line in out.split("\n") if line and not line.startswith("Bump version")]
 
 
