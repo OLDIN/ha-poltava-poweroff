@@ -128,9 +128,17 @@ The card is bundled with the integration and registered as a Lovelace resource a
 type: custom:poweroff-timeline-card
 entity: sensor.power_state          # required
 # queue_entity: select.poweroff_view_queue   # optional: found automatically; `false` hides the queue switcher
+# battery_entity: sensor.ups_runtime          # optional: battery runtime left, see below
 ```
 
 4. Reload the dashboard (hard refresh if needed).
+
+**Battery runout mark (optional).** Set `battery_entity` to a sensor with the remaining battery/UPS runtime
+(hours by default; `min`, `s` and `d` units and `H:MM` states are converted). The card then draws a red line
+on the spiral at the moment the battery runs out (on the tab of that day) and adds a line under the spiral:
+*«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 14:40, світло о 15:00»*.
+"Power returns" is the end of the current or next outage of your home queue; the mark is hidden while
+another queue is shown in the switcher or when the sensor is unavailable.
 
 The card uses its own font (Inter, bundled in `www/fonts/`), so it looks the same on every device and works offline.
 

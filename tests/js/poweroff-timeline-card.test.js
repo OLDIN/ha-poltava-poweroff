@@ -202,6 +202,10 @@ describe('PowerOffTimelineCard', () => {
     });
 
     it('should render header with title', () => {
+      // After today's last outage the card switches to tomorrow by itself; pin today here
+      card._userPickedTab = true;
+      card.selectedTab = 'today';
+      card.updateTimeline();
       expect(card.headerText).toBeDefined();
       expect(card.headerText.textContent).toBe('Сьогодні');
       expect(card.headerText.title).toBe('Відключення сьогодні');
@@ -426,7 +430,7 @@ describe('PowerOffTimelineCard', () => {
       try {
         await render.init();
       } catch (err) {
-        console.warn('Puppeteer недоступний — image snapshot тести пропущено:', err.message);
+        console.warn('Puppeteer is not available, image snapshot tests are skipped:', err.message);
       }
     }, 60000);
 
@@ -687,6 +691,34 @@ describe('PowerOffTimelineCard', () => {
 
       if (result.isNew) {
         console.log('Created new snapshot: full-day-power-off.png');
+      }
+      expect(result.match).toBe(true);
+    }, 30000);
+
+    it('should match image snapshot for battery runout mark', async () => {
+      // Clock is frozen at 12:10; outage 12:30–15:00; 2.5 h of battery -> empty at 14:40, before power returns
+      card.setConfig({ entity: 'sensor.power_state', battery_entity: 'sensor.battery_runtime' });
+      card.hass = {
+        states: {
+          ...mockHass.states,
+          'sensor.power_state': {
+            ...mockHass.states['sensor.power_state'],
+            attributes: {
+              ...mockHass.states['sensor.power_state'].attributes,
+              next_off: '2026-10-27T12:30:00',
+              next_on: '2026-10-27T15:00:00',
+            },
+          },
+          'sensor.battery_runtime': { state: '2.5', attributes: { unit_of_measurement: 'h' } },
+        },
+      };
+      card.selectedTab = 'today';
+      card.updateTimeline();
+
+      const screenshot = await render.screenshot(createHtmlForScreenshot(card));
+      const result = await compareImageSnapshot(screenshot, 'battery-runout-mark');
+      if (result.isNew) {
+        console.log('Created new snapshot: battery-runout-mark.png');
       }
       expect(result.match).toBe(true);
     }, 30000);
@@ -980,6 +1012,96 @@ describe('PowerOffTimelineCard', () => {
       for (const file of ['inter-latin-wght-normal.woff2', 'inter-cyrillic-wght-normal.woff2', 'OFL-Inter.txt']) {
         expect(existsSync(resolve(fontsDir, file))).toBe(true);
       }
+    });
+  });
+
+  describe('Battery runout mark', () => {
+    const HOUR = 3600000;
+    const makeHass = (battery, nextOnInHours = 2) => ({
+      states: {
+        'sensor.power_state': {
+          ...mockHass.states['sensor.power_state'],
+          attributes: {
+            ...mockHass.states['sensor.power_state'].attributes,
+            next_on: new Date(Date.now() + nextOnInHours * HOUR).toISOString(),
+          },
+        },
+        ...(battery ? { 'sensor.battery_runtime': battery } : {}),
+      },
+    });
+    const withBattery = () => card.setConfig({ entity: 'sensor.power_state', battery_entity: 'sensor.battery_runtime' });
+    const showDayOf = (date) => {
+      card._userPickedTab = true;
+      card.selectedTab = date.toDateString() === new Date().toDateString() ? 'today' : 'tomorrow';
+      card.updateTimeline();
+    };
+
+    it('shows nothing without battery_entity', () => {
+      card.setConfig({ entity: 'sensor.power_state' });
+      card.hass = makeHass({ state: '3', attributes: { unit_of_measurement: 'h' } });
+      expect(card.content.querySelector('.battery-mark')).toBeNull();
+      expect(card.content.querySelector('.battery-line')).toBeNull();
+    });
+
+    it('draws a red line on the spiral at the moment the battery runs out', () => {
+      withBattery();
+      card.hass = makeHass({ state: '3', attributes: { unit_of_measurement: 'h' } });
+      showDayOf(new Date(Date.now() + 3 * HOUR));
+      expect(card.content.querySelector('.battery-mark line')).not.toBeNull();
+      expect(card.content.querySelector('.legend-battery')).not.toBeNull();
+    });
+
+    it('puts the line only on the tab of the day the battery runs out', () => {
+      withBattery();
+      card.hass = makeHass({ state: '30', attributes: { unit_of_measurement: 'h' } }, 40);
+      card._userPickedTab = true;
+      card.selectedTab = 'today';
+      card.updateTimeline();
+      expect(card.content.querySelector('.battery-mark')).toBeNull(); // 30 h from now is never today
+      expect(card.content.querySelector('.battery-line')).not.toBeNull();
+    });
+
+    it('says the charge is enough when it lasts until power returns', () => {
+      withBattery();
+      card.hass = makeHass({ state: '3', attributes: { unit_of_measurement: 'h' } }, 2);
+      const line = card.content.querySelector('.battery-line');
+      expect(line.classList.contains('ok')).toBe(true);
+      expect(line.textContent).toContain('Заряду вистачить до');
+    });
+
+    it('warns when the battery runs out before power returns', () => {
+      withBattery();
+      card.hass = makeHass({ state: '0.5', attributes: { unit_of_measurement: 'h' } }, 2);
+      const line = card.content.querySelector('.battery-line');
+      expect(line.classList.contains('ok')).toBe(false);
+      expect(line.textContent).toContain('Заряду не вистачить');
+    });
+
+    it('converts minutes, seconds and H:MM values to hours', () => {
+      withBattery();
+      card.hass = makeHass({ state: '90', attributes: { unit_of_measurement: 'min' } });
+      expect(card.batteryHours()).toBeCloseTo(1.5);
+      card.hass = makeHass({ state: '5400', attributes: { unit_of_measurement: 's' } });
+      expect(card.batteryHours()).toBeCloseTo(1.5);
+      card.hass = makeHass({ state: '1:30', attributes: {} });
+      expect(card.batteryHours()).toBeCloseTo(1.5);
+    });
+
+    it('hides the battery when its entity is unavailable or missing', () => {
+      withBattery();
+      card.hass = makeHass({ state: 'unavailable', attributes: {} });
+      expect(card.content.querySelector('.battery-line')).toBeNull();
+      card.hass = makeHass(null);
+      expect(card.content.querySelector('.battery-line')).toBeNull();
+    });
+
+    it('re-renders when only the battery entity changes', () => {
+      withBattery();
+      const hass = makeHass({ state: '3', attributes: { unit_of_measurement: 'h' } }, 2);
+      card.hass = hass;
+      expect(card.content.querySelector('.battery-line').classList.contains('ok')).toBe(true);
+      card.hass = { states: { ...hass.states, 'sensor.battery_runtime': { state: '0.5', attributes: { unit_of_measurement: 'h' } } } };
+      expect(card.content.querySelector('.battery-line').classList.contains('ok')).toBe(false);
     });
   });
 });

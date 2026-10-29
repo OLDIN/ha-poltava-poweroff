@@ -1,4 +1,4 @@
-const CARD_VERSION = '1.1.0';
+const CARD_VERSION = '1.2.0';
 
 // The card's own font: the same look on any OS/browser (and identical screenshots in tests).
 // Inter (SIL OFL 1.1), Latin + Cyrillic only, ~67 KB. The files live next to the card: www/fonts/.
@@ -167,8 +167,14 @@ const CARD_STYLES = `
   .legend { display: flex; gap: 4px 18px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
+  .legend-battery { width: 4px; height: 18px; border-radius: 2px; background: #e53935; }
   .next-line { font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .next-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
+  .battery-line { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
+  .battery-line ha-icon { --mdc-icon-size: 18px; flex-shrink: 0; }
+  .battery-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
+  .battery-line ha-icon, .battery-line b.until { color: #e53935; }
+  .battery-line.ok ha-icon { color: rgb(144 238 144); }
 
   .info-banner, .stale-banner {
     display: flex;
@@ -302,16 +308,19 @@ class PowerOffTimelineCard extends HTMLElement {
     const stateObj = hass.states[this.config.entity];
     const queueId = this.findQueueEntity(hass);
     const queueObj = queueId ? hass.states[queueId] : undefined;
+    const batteryObj = this.config.battery_entity ? hass.states[this.config.battery_entity] : undefined;
     if (
       this.card &&
       stateObj === this._lastState &&
       queueObj === this._lastQueueState &&
+      batteryObj === this._lastBatteryState &&
       Date.now() - this._lastRenderAt < 60000
     ) {
       return;
     }
     this._lastState = stateObj;
     this._lastQueueState = queueObj;
+    this._lastBatteryState = batteryObj;
 
     if (!this.card) {
       this.buildSkeleton();
@@ -518,12 +527,19 @@ class PowerOffTimelineCard extends HTMLElement {
       });
     }
 
+    // The battery powers the home, so it is shown only for the home queue.
+    const battery = !loading && shownQueue === this._homeQueue
+      ? this.batteryForecast(now, (sensor.attributes || {}).next_on)
+      : null;
+    // The "battery empty" mark goes on the tab of the day the battery runs out.
+    const batteryMark = battery && battery.until.toDateString() === displayDate.toDateString() ? battery : null;
+
     const viewEntity = { ...entity, attributes: { ...attrs, queue: shownQueue } };
     this.content.innerHTML = `
       <div class="spiral-wrapper">
         ${this.renderViewBanner(queueObj, shownQueue)}
         ${loading ? '' : this.renderStaleBanner(entity)}
-        ${this.renderSpiral(pattern, currentIndex, displayDate, viewEntity, this.selectedTab, loading)}
+        ${this.renderSpiral(pattern, currentIndex, displayDate, viewEntity, this.selectedTab, loading, batteryMark)}
         ${loading ? '' : this.renderNoDataNote(entity)}
         <div class="legend">
           <div class="legend-item">
@@ -534,8 +550,13 @@ class PowerOffTimelineCard extends HTMLElement {
             <span class="legend-dot" style="background:rgb(144 238 144);"></span>
             <span>Світло є</span>
           </div>
+          ${batteryMark ? `<div class="legend-item">
+            <span class="legend-dot legend-battery"></span>
+            <span>Акумулятор сяде</span>
+          </div>` : ''}
         </div>
         <div class="next-line">${this.renderNextLine(nextOff, nextOn, loading)}</div>
+        ${battery ? this.renderBatteryLine(battery) : ''}
         ${loading ? this.renderLoadingLine(shownQueue) : this.renderUpdatedLine(entity)}
       </div>
     `;
@@ -559,7 +580,79 @@ class PowerOffTimelineCard extends HTMLElement {
     return slots.join('');
   }
 
-  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false) {
+  /**
+   * Battery runtime from `battery_entity`: hours by default, or converted from the
+   * entity's unit (min, s, d); "H:MM[:SS]" strings are accepted too. null when unknown.
+   */
+  batteryHours() {
+    const id = this.config.battery_entity;
+    const obj = id && this._hass.states[id];
+    if (!obj) return null;
+    const raw = String(obj.state).trim();
+    let hours;
+    const clock = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+    if (clock) {
+      hours = Number(clock[1]) + Number(clock[2]) / 60 + Number(clock[3] || 0) / 3600;
+    } else {
+      const value = Number(raw);
+      if (raw === '' || !Number.isFinite(value)) return null;
+      const unit = String((obj.attributes || {}).unit_of_measurement || 'h').toLowerCase();
+      const factor = { s: 1 / 3600, sec: 1 / 3600, min: 1 / 60, m: 1 / 60, d: 24 }[unit] ?? 1;
+      hours = value * factor;
+    }
+    return hours >= 0 ? hours : null;
+  }
+
+  /** Until when the battery lasts and whether that covers the next power-on (end of the next/current outage). */
+  batteryForecast(now, nextOnIso) {
+    const hours = this.batteryHours();
+    if (hours === null) return null;
+    const until = new Date(now.getTime() + hours * 3600000);
+    const target = nextOnIso ? new Date(nextOnIso) : null;
+    const validTarget = target && !Number.isNaN(target.getTime()) && target > now ? target : null;
+    return { hours, now, until, target: validTarget, ok: !validTarget || until >= validTarget };
+  }
+
+  /** Red radial line across the spiral band at the moment the battery runs out. */
+  renderBatteryMark(until, initialRadius, radiusStep, arcWidth) {
+    const hours = until.getHours() + until.getMinutes() / 60;
+    // Same geometry as the segments: two 12-hour turns, the band's inner radius grows by radiusStep per half hour
+    const angle = (hours * Math.PI * 2) / 12;
+    const inner = initialRadius + hours * 2 * radiusStep + arcWidth - 4;
+    const outer = inner + arcWidth + 8;
+    const x = (r) => (r * Math.sin(angle)).toFixed(2);
+    const y = (r) => (r * -Math.cos(angle)).toFixed(2);
+    const line = `x1="${x(inner)}" y1="${y(inner)}" x2="${x(outer)}" y2="${y(outer)}" stroke-linecap="round"`;
+    return `
+      <g class="battery-mark">
+        <line ${line} stroke="rgba(0,0,0,0.55)" stroke-width="8"></line>
+        <line ${line} stroke="#e53935" stroke-width="4"></line>
+        <circle cx="${x(outer)}" cy="${y(outer)}" r="5" fill="#e53935" stroke="rgba(0,0,0,0.55)" stroke-width="2"></circle>
+      </g>
+    `;
+  }
+
+  renderBatteryLine(battery) {
+    const icon = battery.ok ? 'mdi:battery-check-outline' : 'mdi:battery-alert-variant-outline';
+    if (battery.hours >= 24 && battery.ok) {
+      return `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить більше ніж на добу</span></div>`;
+    }
+    const until = this.formatWhen(battery.until);
+    if (!battery.target) {
+      return `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить до <b>${until}</b></span></div>`;
+    }
+    const on = this.formatWhen(battery.target);
+    return battery.ok
+      ? `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить до <b>${until}</b>, світло о <b>${on}</b></span></div>`
+      : `<div class="battery-line short"><ha-icon icon="${icon}"></ha-icon><span>Заряду не вистачить: до <b class="until">${until}</b>, світло о <b>${on}</b></span></div>`;
+  }
+
+  /** "HH:MM", with "завтра" (tomorrow) in front when the moment is not today. */
+  formatWhen(date) {
+    return `${this.isTomorrow(date) ? 'завтра ' : ''}${this.formatTime(date.toISOString())}`;
+  }
+
+  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false, battery = null) {
     const SEGMENT_COLORS = {
       0: 'rgb(255 182 193)', // pink: outage
       1: 'rgb(144 238 144)', // light green: power on
@@ -615,6 +708,7 @@ class PowerOffTimelineCard extends HTMLElement {
           ${centerCircle}
           ${segments}
           ${hourLabels}
+          ${battery ? this.renderBatteryMark(battery.until, INITIAL_RADIUS, RADIUS_STEP, ARC_WIDTH) : ''}
           <text class="spiral-center-text center-queue" x="0" y="-20">${this.escape(queue)} черга</text>
           <text class="spiral-center-text center-date" x="0" y="10">${dateStr}</text>
           ${stats}
@@ -655,7 +749,7 @@ class PowerOffTimelineCard extends HTMLElement {
     const off = nextOff ? new Date(nextOff) : null;
     const on = nextOn ? new Date(nextOn) : null;
     const valid = (d) => d && !Number.isNaN(d.getTime());
-    const when = (d) => `${this.isTomorrow(d) ? 'завтра ' : ''}${this.formatTime(d.toISOString())}`;
+    const when = (d) => this.formatWhen(d);
     if (valid(on) && (!valid(off) || on < off)) {
       return `Світло з'явиться о <b>${when(on)}</b>`;
     }
