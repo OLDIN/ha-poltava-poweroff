@@ -1,6 +1,6 @@
 [![SWUbanner](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct-single.svg)](https://stand-with-ukraine.pp.ua/)
 
-![HA Poltava PowerOff Logo](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/custom_components/poltava_poweroff/icon.png)
+![HA Poltava PowerOff Logo](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/custom_components/poltava_poweroff/brand/icon.png)
 
 # ⚡️ Home Assistant Poltava PowerOff
 
@@ -139,6 +139,8 @@ on the spiral at the moment the battery runs out (on the tab of that day) and ad
 *«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 14:40, світло о 15:00»*.
 "Power returns" is the end of the current or next outage of your home queue; the mark is hidden while
 another queue is shown in the switcher or when the sensor is unavailable.
+
+The integration ships its own icon and logo in `custom_components/poltava_poweroff/brand/` (supported since Home Assistant 2026.3), so it shows up on **Settings → Devices & Services** without an entry in the `home-assistant/brands` repository.
 
 The card uses its own font (Inter, bundled in `www/fonts/`), so it looks the same on every device and works offline.
 
