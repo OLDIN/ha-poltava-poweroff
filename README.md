@@ -1,6 +1,6 @@
 [![SWUbanner](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct-single.svg)](https://stand-with-ukraine.pp.ua/)
 
-![HA Poltava PowerOff Logo](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/custom_components/poltava_poweroff/icon.png)
+![HA Poltava PowerOff Logo](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/custom_components/poltava_poweroff/brand/icon.png)
 
 # ⚡️ Home Assistant Poltava PowerOff
 
@@ -131,6 +131,8 @@ entity: sensor.power_state          # required
 ```
 
 4. Reload the dashboard (hard refresh if needed).
+
+The integration ships its own icon and logo in `custom_components/poltava_poweroff/brand/` (supported since Home Assistant 2026.3), so it shows up on **Settings → Devices & Services** without an entry in the `home-assistant/brands` repository.
 
 The card uses its own font (Inter, bundled in `www/fonts/`), so it looks the same on every device and works offline.
 
