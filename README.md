@@ -133,12 +133,23 @@ entity: sensor.power_state          # required
 
 4. Reload the dashboard (hard refresh if needed).
 
-**Battery runout mark (optional).** Set `battery_entity` to a sensor with the remaining battery/UPS runtime
-(hours by default; `min`, `s` and `d` units and `H:MM` states are converted). The card then draws a red line
-on the spiral at the moment the battery runs out (on the tab of that day) and adds a line under the spiral:
-*«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 14:40, світло о 15:00»*.
-"Power returns" is the end of the current or next outage of your home queue; the mark is hidden while
-another queue is shown in the switcher or when the sensor is unavailable.
+#### Battery runout mark (optional)
+
+Got a battery, UPS or power station? Point the card at a sensor with its remaining runtime and it shows
+whether the charge lasts until power comes back:
+
+```yaml
+type: custom:poweroff-timeline-card
+entity: sensor.power_state
+battery_entity: sensor.ups_runtime   # remaining runtime: hours, or min / s / d units, or "H:MM"
+```
+
+![Battery runout mark](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_battery.png)
+
+- A **red line** on the spiral marks the moment the battery runs out (on the tab of that day), with a legend item.
+- A line under the spiral compares it with the next power-on (the end of the current or next outage of your home queue):
+  *«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 03:21, світло о 04:00»*.
+- Without `battery_entity`, while the sensor is unavailable, or while another queue is shown in the switcher, the card looks exactly as before.
 
 The integration ships its own icon and logo in `custom_components/poltava_poweroff/brand/` (supported since Home Assistant 2026.3), so it shows up on **Settings → Devices & Services** without an entry in the `home-assistant/brands` repository.
 
@@ -189,7 +200,7 @@ scripts/dev_ha_ui.sh mode nodata  # "Немає даних" — known days are k
 scripts/dev_ha_ui.sh mode ok
 scripts/dev_ha_ui.sh restart      # restart HA only — schedule must come back from cache
 scripts/dev_ha_ui.sh shot site_down   # screenshots/site_down.png (full dashboard)
-scripts/dev_ha_ui.sh readme       # re-take the README screenshots in pics/
+scripts/dev_ha_ui.sh readme       # re-take the README screenshots in pics/ (incl. card_battery.png)
 scripts/dev_ha_ui.sh down
 ```
 
