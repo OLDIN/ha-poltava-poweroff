@@ -89,3 +89,27 @@ async def test_config_flow_dropdown_and_duplicate(hass: HomeAssistant) -> None:
         again = await hass.config_entries.flow.async_configure(again["flow_id"], {POWEROFF_GROUP_CONF: "4-1"})
         assert again["type"] is FlowResultType.ABORT
         assert again["reason"] == "already_configured"
+
+
+async def test_schedule_changed_event_entity(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data={POWEROFF_GROUP_CONF: "4-1"}, title="Poltava")
+    entry.add_to_hass(hass)
+    with patch(SCRAPER, AsyncMock(return_value=([PowerOffPeriod(8, 9.5, True)], None))):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("event.poweroff_schedule_changed")
+    assert state is not None
+    assert state.state == "unknown"  # nothing fired on the first fetch
+    assert state.attributes["event_types"] == ["published", "changed"]
+
+    with patch(SCRAPER, AsyncMock(return_value=([PowerOffPeriod(8, 9.5, True)], [PowerOffPeriod(15, 17.5, False)]))):
+        await entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+
+    state = hass.states.get("event.poweroff_schedule_changed")
+    assert state.state not in ("unknown", "unavailable")
+    assert state.attributes["event_type"] == "published"
+    assert state.attributes["day"] == "tomorrow"
+    assert state.attributes["periods_text"] == "15:00–17:30"
+    assert state.attributes["queue"] == "4.1"

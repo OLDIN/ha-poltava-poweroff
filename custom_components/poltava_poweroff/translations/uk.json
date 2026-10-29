@@ -22,5 +22,20 @@
       "name": "Оновити графік",
       "description": "Завантажити графік відключень з energy-ua.info просто зараз."
     }
+  },
+  "entity": {
+    "event": {
+      "schedule_changed": {
+        "name": "Зміна графіка відключень",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "published": "Графік опубліковано",
+              "changed": "Графік змінився"
+            }
+          }
+        }
+      }
+    }
   }
 }

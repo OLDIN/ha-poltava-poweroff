@@ -1104,4 +1104,71 @@ describe('PowerOffTimelineCard', () => {
       expect(card.content.querySelector('.battery-line').classList.contains('ok')).toBe(false);
     });
   });
+
+  describe('Visual editor', () => {
+    const Card = () => dom.window.customElements.get('poweroff-timeline-card');
+    const withSelect = () => ({
+      states: {
+        ...mockHass.states,
+        'select.poweroff_view_queue': {
+          entity_id: 'select.poweroff_view_queue',
+          state: '1.1',
+          attributes: { ...mockHass.states['sensor.power_state'].attributes, home_queue: '1.1' },
+        },
+      },
+    });
+
+    it('describes the options for the built-in form editor', () => {
+      const form = Card().getConfigForm();
+      expect(form.schema.map((f) => f.name)).toEqual([
+        'entity', 'show_queue_switcher', 'queue_entity', 'battery_entity', 'auto_tomorrow',
+      ]);
+      expect(form.schema[0].required).toBe(true);
+      expect(form.schema[0].selector.entity.filter).toEqual({ integration: 'poltava_poweroff', domain: 'sensor' });
+      expect(form.computeLabel({ name: 'battery_entity' })).toBe('Час роботи акумулятора');
+      expect(form.computeHelper({ name: 'battery_entity' })).toContain('червону лінію');
+    });
+
+    it('refuses the visual editor for the old queue_entity: false', () => {
+      const { assertConfig } = Card().getConfigForm();
+      expect(() => assertConfig({ entity: 'sensor.power_state', queue_entity: false })).toThrow('show_queue_switcher');
+      expect(() => assertConfig({ entity: 'sensor.power_state' })).not.toThrow();
+    });
+
+    it('suggests the integration sensor in the card picker', () => {
+      expect(Card().getStubConfig(mockHass)).toEqual({ entity: 'sensor.power_state' });
+      expect(Card().getStubConfig({ states: {} })).toEqual({ entity: 'sensor.power_state' });
+    });
+
+    it('hides the queue switcher with show_queue_switcher: false', () => {
+      card.setConfig({ entity: 'sensor.power_state' });
+      card.hass = withSelect();
+      expect(card.queueChip.hidden).toBe(false);
+      card.setConfig({ entity: 'sensor.power_state', show_queue_switcher: false });
+      expect(card.queueChip.hidden).toBe(true); // redrawn right away, as in the editor preview
+    });
+
+    it('keeps the switcher when queue_entity is set explicitly', () => {
+      card.setConfig({ entity: 'sensor.power_state', queue_entity: 'select.poweroff_view_queue' });
+      card.hass = withSelect();
+      expect(card.queueChip.hidden).toBe(false);
+    });
+
+    it('does not switch to tomorrow by itself with auto_tomorrow: false', () => {
+      const hass = {
+        states: {
+          'sensor.power_state': {
+            ...mockHass.states['sensor.power_state'],
+            attributes: { ...mockHass.states['sensor.power_state'].attributes, poweroff_periods_today: [] },
+          },
+        },
+      };
+      card.setConfig({ entity: 'sensor.power_state' });
+      card.hass = hass;
+      expect(card.selectedTab).toBe('tomorrow');
+      card.setConfig({ entity: 'sensor.power_state', auto_tomorrow: false });
+      card.hass = hass;
+      expect(card.selectedTab).toBe('today');
+    });
+  });
 });

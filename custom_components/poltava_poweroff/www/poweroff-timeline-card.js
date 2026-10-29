@@ -1,4 +1,4 @@
-const CARD_VERSION = '1.2.0';
+const CARD_VERSION = '1.3.0';
 
 // The card's own font: the same look on any OS/browser (and identical screenshots in tests).
 // Inter (SIL OFL 1.1), Latin + Cyrillic only, ~67 KB. The files live next to the card: www/fonts/.
@@ -269,7 +269,54 @@ const CARD_STYLES = `
   .tooltip-row.error ha-icon { color: #ffa726; }
 `;
 
+// Visual editor (HA's built-in form): labels and hints shown in the card editor
+const EDITOR_LABELS = {
+  entity: 'Сутність графіка',
+  show_queue_switcher: 'Показувати перемикач черг',
+  queue_entity: 'Сутність перемикача черг',
+  battery_entity: 'Час роботи акумулятора',
+  auto_tomorrow: 'Автоматично перемикати на «Завтра»',
+};
+const EDITOR_HELPERS = {
+  entity: 'Сенсор стану світла з інтеграції Poltava Power Offline (зазвичай sensor.power_state).',
+  queue_entity: 'Можна залишити порожнім: картка знайде select.poweroff_view_queue сама.',
+  battery_entity:
+    'Необов\'язково. Сенсор із залишком часу роботи акумулятора чи ДБЖ (год, хв, с або «Г:ХХ»). '
+    + 'Картка покаже червону лінію, коли він сяде.',
+  auto_tomorrow: 'Коли сьогоднішні відключення минули, показувати графік на завтра.',
+};
+
 class PowerOffTimelineCard extends HTMLElement {
+  /** Default config for the card picker: the integration's state sensor, if there is one. */
+  static getStubConfig(hass) {
+    const states = (hass && hass.states) || {};
+    const found = Object.keys(states).find(
+      (id) => id.startsWith('sensor.') && Array.isArray(states[id].attributes?.poweroff_periods_today),
+    );
+    return { entity: found || 'sensor.power_state' };
+  }
+
+  /** Schema for HA's built-in visual editor (no custom editor element needed). */
+  static getConfigForm() {
+    return {
+      schema: [
+        { name: 'entity', required: true, selector: { entity: { filter: { integration: 'poltava_poweroff', domain: 'sensor' } } } },
+        { name: 'show_queue_switcher', default: true, selector: { boolean: {} } },
+        { name: 'queue_entity', selector: { entity: { filter: { integration: 'poltava_poweroff', domain: 'select' } } } },
+        { name: 'battery_entity', selector: { entity: { filter: { domain: 'sensor' } } } },
+        { name: 'auto_tomorrow', default: true, selector: { boolean: {} } },
+      ],
+      computeLabel: (schema) => EDITOR_LABELS[schema.name],
+      computeHelper: (schema) => EDITOR_HELPERS[schema.name],
+      assertConfig: (config) => {
+        if (config.queue_entity === false) {
+          // The old YAML way to hide the switcher; the form cannot show `false` in an entity field
+          throw new Error('queue_entity: false — замініть на show_queue_switcher: false, щоб редагувати візуально');
+        }
+      },
+    };
+  }
+
   setConfig(config) {
     if (!config.entity) {
       throw new Error('Please define an entity');
@@ -283,12 +330,23 @@ class PowerOffTimelineCard extends HTMLElement {
     this._menuOpen = false;
     this._pendingQueue = null;
     this._showDetails = false;
+    this._queueEntityId = null;
+    this._lastBatteryState = undefined;
+    // In the card editor setConfig is called on every change: redraw the preview right away
+    if (this.card && this._hass) this.hass = this._hass;
   }
 
   /** The "view queue" select entity: from the config or discovered automatically. */
   findQueueEntity(hass) {
-    if (this.config.queue_entity === false) return null;
-    if (this.config.queue_entity) return hass.states[this.config.queue_entity] ? this.config.queue_entity : null;
+    // The result is remembered in _queueEntityId: dataSource() reads the schedule from it
+    if (this.config.queue_entity === false || this.config.show_queue_switcher === false) {
+      this._queueEntityId = null;
+      return null;
+    }
+    if (this.config.queue_entity) {
+      this._queueEntityId = hass.states[this.config.queue_entity] ? this.config.queue_entity : null;
+      return this._queueEntityId;
+    }
     if (this._queueEntityId && hass.states[this._queueEntityId]) return this._queueEntityId;
     const home = hass.states[this.config.entity]?.attributes?.queue;
     const found = Object.keys(hass.states).find((id) => {
@@ -485,7 +543,7 @@ class PowerOffTimelineCard extends HTMLElement {
 
     // Show tomorrow automatically when today's outages are over (or there are none)
     // and tomorrow has a schedule. Once the user picked a tab manually, leave it alone.
-    if (!this._userPickedTab && tomorrowPeriods.length > 0) {
+    if (!this._userPickedTab && this.config.auto_tomorrow !== false && tomorrowPeriods.length > 0) {
       const nowHours = now.getHours() + now.getMinutes() / 60;
       const hasFutureToday = todayPeriods.some((period) => {
         const end = Number(period.end) === 0 ? 24 : Number(period.end);

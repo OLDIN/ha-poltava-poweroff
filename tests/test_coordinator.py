@@ -237,3 +237,69 @@ async def test_dst_day_times_are_wall_clock(hass: HomeAssistant, freezer) -> Non
     await coord._async_update_data()
     start = coord.next_poweroff
     assert (start.hour, start.utcoffset()) == (5, timedelta(hours=2))
+
+
+def test_schedule_changes_reports_published_and_changed_days() -> None:
+    from datetime import date
+
+    from poltava_poweroff.coordinator import schedule_changes
+
+    today = date(2026, 10, 30)
+    before = {"2026-10-29": [(1.0, 2.0)], "2026-10-30": [(8.0, 9.5)]}
+    after = {
+        "2026-10-29": [(5.0, 6.0)],  # the past: never reported
+        "2026-10-30": [(8.0, 10.0), (21.0, 0.0)],
+        "2026-10-31": [],
+    }
+    changes = schedule_changes(before, after, today, "4.1")
+    assert [(c["event_type"], c["day"]) for c in changes] == [("changed", "today"), ("published", "tomorrow")]
+    today_change = changes[0]
+    assert today_change["periods"] == [{"start": "08:00", "end": "10:00"}, {"start": "21:00", "end": "24:00"}]
+    assert today_change["periods_text"] == "08:00–10:00, 21:00–24:00"
+    assert today_change["previous_periods_text"] == "08:00–09:30"
+    assert today_change["outage_hours"] == 5
+    assert today_change["queue"] == "4.1"
+    assert changes[1]["periods"] == [] and changes[1]["periods_text"] == ""
+
+
+def test_schedule_changes_silent_on_first_fetch() -> None:
+    from datetime import date
+
+    from poltava_poweroff.coordinator import schedule_changes
+
+    assert schedule_changes({}, {"2026-10-30": [(8.0, 9.0)]}, date(2026, 10, 30), "4.1") == []
+
+
+async def test_schedule_change_is_dispatched_for_home_queue_only(hass: HomeAssistant) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+    from poltava_poweroff.const import signal_schedule_changed
+
+    coord = _make(hass)
+    received: list = []
+    async_dispatcher_connect(hass, signal_schedule_changed("e1"), received.extend)
+
+    coord.api.get_power_off_periods = AsyncMock(return_value=(TODAY, TOMORROW))
+    await coord._async_update_data()
+    await hass.async_block_till_done()
+    assert received == []  # first fetch
+
+    await coord._async_update_data()
+    await hass.async_block_till_done()
+    assert received == []  # same schedule
+
+    coord.api.get_power_off_periods = AsyncMock(return_value=(TODAY, [PowerOffPeriod(9, 12, False)]))
+    await coord._async_update_data()
+    await hass.async_block_till_done()
+    assert [(c["event_type"], c["day"], c["periods_text"]) for c in received] == [
+        ("changed", "tomorrow", "09:00–12:00")
+    ]
+
+    # The view queue changes on its own: no event for it
+    received.clear()
+    coord._scraper("2-1").get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(1, 2, True)], []))
+    await coord.async_set_view_group("2-1")
+    await hass.async_block_till_done()
+    coord._scraper("2-1").get_power_off_periods = AsyncMock(return_value=([PowerOffPeriod(3, 4, True)], []))
+    await coord._async_update_data()
+    await hass.async_block_till_done()
+    assert received == []

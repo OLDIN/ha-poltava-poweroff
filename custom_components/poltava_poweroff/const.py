@@ -19,6 +19,16 @@ STORAGE_KEY = f"{DOMAIN}"
 # How many past days to keep in the cache
 CACHE_KEEP_DAYS = 2
 
+# Event entity: event types fired when the home queue schedule changes
+EVENT_SCHEDULE_PUBLISHED = "published"  # a day that was unknown got a schedule (e.g. tomorrow)
+EVENT_SCHEDULE_CHANGED = "changed"  # a known day's outages changed
+
+
+def signal_schedule_changed(entry_id: str) -> str:
+    """Dispatcher signal carrying the list of schedule changes of one config entry."""
+    return f"{DOMAIN}_schedule_changed_{entry_id}"
+
+
 STATE_ON = "Power ON"
 STATE_OFF = "Power OFF"
 

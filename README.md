@@ -48,6 +48,7 @@ Find your queue (1.1 … 6.2) on the [EnergyUA][energyua] website by typing your
 | `sensor.schedule_last_fetch` | Diagnostic: last successful request to the site |
 | `select.poweroff_view_queue` | Which queue the card shows (see [queue switcher](#viewing-other-queues-queue-switcher)) |
 | `calendar.poltava_poweroff_calendar` | Planned outages as calendar events |
+| `event.poweroff_schedule_changed` | Fires when the schedule of your queue is published or changes (see [below](#schedule-change-event)) |
 
 An outage that crosses midnight (e.g. 21:00–24:00 today and 00:00–02:00 tomorrow) is treated as one outage: `next_power_on` is 02:00, not 00:00.
 
@@ -66,6 +67,40 @@ The integration automatically updates data every **5 minutes**. If you need to f
 ```yaml
 service: poltava_poweroff.refresh
 ```
+
+### Schedule change event
+
+`event.poweroff_schedule_changed` fires once for every day whose schedule changed (today and later; nothing fires on the very first fetch after installation):
+
+| Event type | When |
+|---|---|
+| `published` | A day that was unknown got a schedule — usually tomorrow's, published in the evening |
+| `changed` | The outages of an already known day changed |
+
+Attributes of the last event: `day` (`today` / `tomorrow` / `later`), `date`, `queue`, `periods` and `previous_periods` (`[{"start": "09:00", "end": "11:00"}]`), `periods_text` and `previous_periods_text` (`"09:00–11:00, 15:00–17:30"`, empty when there are no outages), `outage_hours`.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.poweroff_schedule_changed
+conditions:
+  - "{{ trigger.from_state is not none and trigger.from_state.state != 'unavailable' }}"  # skip restarts
+actions:
+  - action: notify.mobile_app_my_phone
+    data:
+      message: "Графік на {{ trigger.to_state.attributes.day }}: {{ trigger.to_state.attributes.periods_text }}"
+```
+
+### Blueprints
+
+Ready-made automations; import them with one click and pick your phone in the form:
+
+| Blueprint | What it does | Import |
+|---|---|---|
+| Schedule changed | Push notification when tomorrow's schedule is published or today's/tomorrow's changes, e.g. *«⚠️ Графік на сьогодні змінився — Черга 4.1: 08:00–10:00 (2 год без світла). Було: 08:00–09:30.»* | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FOLDIN%2Fha-poltava-poweroff%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpoltava_poweroff%2Fschedule_changed.yaml) |
+| Outage warning | Notification (and optionally a TTS announcement) N minutes before the next outage, plus any extra actions (turn on the boiler, shut down a PC…). Follows schedule changes | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FOLDIN%2Fha-poltava-poweroff%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fpoltava_poweroff%2Foutage_warning.yaml) |
+
+The files live in [`blueprints/automation/poltava_poweroff/`](blueprints/automation/poltava_poweroff/).
 
 ### Viewing other queues (queue switcher)
 
@@ -122,14 +157,22 @@ The card is bundled with the integration and registered as a Lovelace resource a
 
 [![Add Lovelace Card via My Home Assistant](https://my.home-assistant.io/badges/lovelace_card.svg)](https://my.home-assistant.io/redirect/lovelace_card/?config=%7B%22type%22%3A%22custom%3Apoweroff-timeline-card%22%2C%22entity%22%3A%22sensor.power_state%22%7D)
 
-3. Alternatively, open your dashboard and choose **Edit → Add card → Custom: Power Off Timeline Card** (or **Manual** and paste):
+3. Alternatively, open your dashboard and choose **Edit → Add card → Custom: Power Off Timeline Card**. All options can be set in the visual editor, with a live preview:
+
+![Card editor](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_editor.png)
+
+Or use **Show code editor**:
 
 ```yaml
 type: custom:poweroff-timeline-card
 entity: sensor.power_state          # required
-# queue_entity: select.poweroff_view_queue   # optional: found automatically; `false` hides the queue switcher
+# show_queue_switcher: false                  # optional: hide the queue switcher (default true)
+# queue_entity: select.poweroff_view_queue   # optional: found automatically
 # battery_entity: sensor.ups_runtime          # optional: battery runtime left, see below
+# auto_tomorrow: false                        # optional: don't switch to tomorrow when today's outages are over
 ```
+
+The old `queue_entity: false` still hides the switcher, but the visual editor asks to replace it with `show_queue_switcher: false`.
 
 4. Reload the dashboard (hard refresh if needed).
 

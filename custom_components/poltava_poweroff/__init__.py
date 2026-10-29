@@ -15,7 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
 from .coordinator import PoltavaPowerOffCoordinator
 
-PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SELECT, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.EVENT, Platform.SELECT, Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
 
 # Configured from the UI only (config entries); there is no YAML configuration

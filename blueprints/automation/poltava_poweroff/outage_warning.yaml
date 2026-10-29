@@ -1,0 +1,112 @@
+# Warns N minutes before the next scheduled outage of the home queue.
+# Uses sensor.next_power_off, which already skips the outage in progress and follows schedule changes.
+blueprint:
+  name: Попередження перед відключенням світла
+  description: >-
+    Сповіщення на телефон (і, за бажанням, голосом через TTS) за кілька хвилин до
+    наступного відключення за графіком інтеграції Poltava Power Offline.
+    Якщо графік зміниться, попередження спрацює вже за новим часом.
+  domain: automation
+  source_url: https://github.com/OLDIN/ha-poltava-poweroff/blob/main/blueprints/automation/poltava_poweroff/outage_warning.yaml
+  input:
+    next_off_sensor:
+      name: Сенсор наступного відключення
+      description: Зазвичай sensor.next_power_off з інтеграції Poltava Power Offline.
+      default: sensor.next_power_off
+      selector:
+        entity:
+          filter:
+            - integration: poltava_poweroff
+              domain: sensor
+              device_class: timestamp
+    minutes_before:
+      name: За скільки хвилин попереджати
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: хв
+          mode: box
+    notify_devices:
+      name: Телефони для сповіщень
+      description: Пристрої з застосунком Home Assistant. Можна не вибирати.
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: mobile_app
+    message:
+      name: Текст сповіщення
+      description: "Можна використати {{ minutes }} та {{ off_time }} (час відключення, ГГ:ХХ)."
+      default: "Світло буде вимкнене через {{ minutes }} хв (о {{ off_time }})."
+      selector:
+        text:
+          multiline: true
+    tts_entity:
+      name: TTS-сервіс (необов'язково)
+      description: Наприклад tts.piper або tts.google_translate_uk. Разом із колонкою нижче — голосове попередження.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: tts
+    media_player:
+      name: Колонка для голосу (необов'язково)
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+    extra_actions:
+      name: Додаткові дії (необов'язково)
+      description: Що ще зробити перед відключенням, наприклад увімкнути бойлер або вимкнути комп'ютер.
+      default: []
+      selector:
+        action: {}
+
+mode: single
+
+trigger_variables:
+  sensor: !input next_off_sensor
+  minutes: !input minutes_before
+
+triggers:
+  # Re-evaluated every minute (now()) and whenever the sensor changes; fires when it becomes true
+  - trigger: template
+    value_template: >-
+      {% set t = as_timestamp(states(sensor), 0) %}
+      {{ t > 0 and 0 < t - as_timestamp(now()) <= minutes * 60 }}
+
+variables:
+  notify_devices: !input notify_devices
+  tts_entity: !input tts_entity
+  media_player: !input media_player
+  off_time: "{{ as_timestamp(states(sensor)) | timestamp_custom('%H:%M') }}"
+
+actions:
+  - variables:
+      # Rendered here, so the text can use minutes and off_time
+      text: !input message
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        # The mobile_app notify service is named after the device: notify.mobile_app_<device_name>
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "⚡ Відключення світла"
+            message: "{{ text }}"
+  - if:
+      - condition: template
+        value_template: "{{ tts_entity | length > 0 and media_player | length > 0 }}"
+    then:
+      - action: tts.speak
+        target:
+          entity_id: !input tts_entity
+        data:
+          media_player_entity_id: !input media_player
+          message: "{{ text }}"
+          cache: true
+  - choose: []
+    default: !input extra_actions
