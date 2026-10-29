@@ -20,6 +20,7 @@ from typing import Any
 from homeassistant.components.calendar import CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -27,6 +28,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CACHE_KEEP_DAYS,
     DOMAIN,
+    EVENT_SCHEDULE_CHANGED,
+    EVENT_SCHEDULE_PUBLISHED,
     POWEROFF_GROUP_CONF,
     STATE_OFF,
     STATE_ON,
@@ -35,6 +38,7 @@ from .const import (
     UPDATE_INTERVAL,
     PowerOffGroup,
     group_display,
+    signal_schedule_changed,
 )
 from .energyua_scrapper import EnergyUaScrapper
 from .entities import PowerOffPeriod
@@ -295,8 +299,13 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 state.fail(err, now)
                 raise
+            before = dict(state.schedule)
             if state.apply(today, tomorrow, now):
                 LOGGER.info("Schedule for queue %s changed: %s", group, state.schedule)
+                if group == str(self.group):
+                    changes = schedule_changes(before, state.schedule, now.date(), group_display(group))
+                    if changes:
+                        async_dispatcher_send(self.hass, signal_schedule_changed(self.config_entry.entry_id), changes)
         return state
 
     async def _async_update_data(self) -> dict:
@@ -462,3 +471,48 @@ def _parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
     return dt_util.parse_datetime(str(value))
+
+
+def _hhmm(hours: float) -> str:
+    total = round(hours * 60)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _periods_payload(periods: list[tuple[float, float]] | None) -> list[dict[str, str]]:
+    return [{"start": _hhmm(s), "end": _hhmm(24 if e == 0 else e)} for s, e in periods or []]
+
+
+def _periods_text(periods: list[tuple[float, float]] | None) -> str:
+    return ", ".join(f"{p['start']}–{p['end']}" for p in _periods_payload(periods))
+
+
+def schedule_changes(before: Schedule, after: Schedule, today: date, queue: str) -> list[dict[str, Any]]:
+    """Per-day differences between two schedules, as event payloads (today and later only).
+
+    Nothing is reported when ``before`` is empty: that is the very first fetch (or a fresh
+    install without cache), not a change of the schedule.
+    """
+    if not before:
+        return []
+    changes: list[dict[str, Any]] = []
+    for day in sorted(after):
+        if day < today.isoformat():
+            continue
+        old, new = before.get(day), after[day]
+        if old == new:
+            continue
+        delta = (date.fromisoformat(day) - today).days
+        changes.append(
+            {
+                "event_type": EVENT_SCHEDULE_PUBLISHED if old is None else EVENT_SCHEDULE_CHANGED,
+                "queue": queue,
+                "date": day,
+                "day": "today" if delta == 0 else "tomorrow" if delta == 1 else "later",
+                "periods": _periods_payload(new),
+                "periods_text": _periods_text(new),
+                "previous_periods": _periods_payload(old),
+                "previous_periods_text": _periods_text(old),
+                "outage_hours": round(sum((24 if e == 0 else e) - s for s, e in new), 2),
+            }
+        )
+    return changes

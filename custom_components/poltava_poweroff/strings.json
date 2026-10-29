@@ -22,5 +22,20 @@
       "name": "Refresh schedule",
       "description": "Fetch the outage schedule from energy-ua.info right now."
     }
+  },
+  "entity": {
+    "event": {
+      "schedule_changed": {
+        "name": "Poweroff schedule changed",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "published": "Schedule published",
+              "changed": "Schedule changed"
+            }
+          }
+        }
+      }
+    }
   }
 }
