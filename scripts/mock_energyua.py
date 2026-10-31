@@ -1,12 +1,14 @@
-"""Mock energy-ua.info server for dev/e2e.
+"""Mock energy-ua.info and poe.pl.ua server for dev/e2e.
 
-Serves /cherga/<group> in the same HTML format as the real site (in Ukrainian, like the site)
-and has test endpoints to "break" the site live:
+Serves /cherga/<group> (energy-ua.info) and POST /customs/newgpv-info.php (poe.pl.ua) in the same
+HTML format as the real sites (in Ukrainian, like the sites) and has test endpoints to "break" them live:
 
   GET  /_test/state                 — current mode and schedule
   POST /_test/mode   {"mode": "..."} — ok | nodata | http500 | garbage | timeout
   POST /_test/schedule {"group": "4-1", "today": [[8, 9.5]], "tomorrow": [[9, 11]] | null}
   POST /_test/delay  {"seconds": 2}  — slow site (shows the card's loading state)
+  POST /_test/poe    {"mode": "..."} — poe.pl.ua on its own: same | ok | down | empty
+                                        (same = follow /_test/mode; empty = "not published")
 
 Standalone:  python scripts/mock_energyua.py   (port from POLTAVA_MOCK_PORT, default 8798)
 """
@@ -14,7 +16,10 @@ Standalone:  python scripts/mock_energyua.py   (port from POLTAVA_MOCK_PORT, def
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiohttp import web
 
@@ -65,12 +70,30 @@ def render_page(group: str, today: list | None, tomorrow: list | None) -> str:
     )
 
 
+def render_poe(schedules: dict[str, list]) -> str:
+    """poe.pl.ua answer: the "periods by queue" list for every sub-queue that has a schedule."""
+    items = "".join(
+        f"<li><b>{q}</b> — "
+        + ", ".join(f"<span>{_hhmm(s)}–{'24:00' if float(e) == 0 else _hhmm(e)}</span>" for s, e in periods)
+        + "</li>"
+        for q, periods in schedules.items()
+    )
+    return (
+        '<div class="gpvinfodetail">ГПВ (mock)<p class="gpv-title">Періоди відключень за чергами</p>'
+        f'<ul class="gpv-periods">{items}</ul></div>'
+    )
+
+
+GROUPS = [f"{a}-{b}" for a in range(1, 7) for b in (1, 2)]
+
+
 def build_app() -> web.Application:
     app = web.Application()
     app["mode"] = os.environ.get("POLTAVA_MOCK_MODE", "ok")
     app["schedule"] = {k: dict(v) for k, v in DEFAULT_SCHEDULE.items()}
     app["hits"] = 0
     app["delay"] = float(os.environ.get("POLTAVA_MOCK_DELAY", "0"))
+    app["poe_mode"] = os.environ.get("POLTAVA_MOCK_POE_MODE", "same")
 
     async def cherga(request: web.Request) -> web.StreamResponse:
         app["hits"] += 1
@@ -91,6 +114,30 @@ def build_app() -> web.Application:
             return web.Response(text=render_page(group, None, None), content_type="text/html")
         return web.Response(text=render_page(group, sched["today"], sched["tomorrow"]), content_type="text/html")
 
+    async def poe(request: web.Request) -> web.StreamResponse:
+        """POST /customs/newgpv-info.php  seldate={"date_in": "DD-MM-YYYY"}"""
+        mode = app["poe_mode"]
+        if mode == "same":
+            mode = {"ok": "ok", "nodata": "empty"}.get(app["mode"], "down")
+        if mode == "down":
+            return web.Response(status=522, text="error code: 522")
+        if mode == "empty":
+            return web.Response(text="")
+        form = await request.post()
+        day = datetime.strptime(json.loads(str(form["seldate"]))["date_in"], "%d-%m-%Y").date()
+        today = datetime.now(ZoneInfo("Europe/Kyiv")).date()
+        key = "today" if day == today else "tomorrow" if day == today + timedelta(days=1) else None
+        schedules = {}
+        for group in GROUPS:
+            sched = app["schedule"].get(group) or app["schedule"]["default"]
+            if key and sched.get(key) is not None:
+                schedules[group.replace("-", ".")] = sched[key]
+        return web.Response(text=render_poe(schedules) if schedules else "", content_type="text/html")
+
+    async def set_poe(request: web.Request) -> web.Response:
+        app["poe_mode"] = (await request.json())["mode"]
+        return web.json_response({"ok": True, "poe_mode": app["poe_mode"]})
+
     async def set_mode(request: web.Request) -> web.Response:
         body = await request.json()
         app["mode"] = body["mode"]
@@ -107,10 +154,18 @@ def build_app() -> web.Application:
 
     async def state(request: web.Request) -> web.Response:
         return web.json_response(
-            {"mode": app["mode"], "delay": app["delay"], "hits": app["hits"], "schedule": app["schedule"]}
+            {
+                "mode": app["mode"],
+                "poe_mode": app["poe_mode"],
+                "delay": app["delay"],
+                "hits": app["hits"],
+                "schedule": app["schedule"],
+            }
         )
 
     app.router.add_get("/cherga/{group}", cherga)
+    app.router.add_post("/customs/newgpv-info.php", poe)
+    app.router.add_post("/_test/poe", set_poe)
     app.router.add_post("/_test/mode", set_mode)
     app.router.add_post("/_test/schedule", set_schedule)
     app.router.add_post("/_test/delay", set_delay)

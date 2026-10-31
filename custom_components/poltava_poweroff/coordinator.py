@@ -40,8 +40,8 @@ from .const import (
     group_display,
     signal_schedule_changed,
 )
-from .energyua_scrapper import EnergyUaScrapper
 from .entities import PowerOffPeriod
+from .schedule_source import ScheduleSource
 
 LOGGER = logging.getLogger(__name__)
 
@@ -167,20 +167,20 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         self.group: PowerOffGroup = config_entry.data[POWEROFF_GROUP_CONF]
         self.view_group: str = str(self.group)
         self.queues: dict[str, QueueState] = {str(self.group): QueueState(str(self.group))}
-        self._scrapers: dict[str, EnergyUaScrapper] = {str(self.group): EnergyUaScrapper(self.group)}
+        self._scrapers: dict[str, ScheduleSource] = {str(self.group): ScheduleSource(self.group)}
         self._locks: dict[str, asyncio.Lock] = {}
         self._store: Store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{config_entry.entry_id}")
 
     # ------------------------------------------------------------- accessors
 
     @property
-    def api(self) -> EnergyUaScrapper:
+    def api(self) -> ScheduleSource:
         """Scraper of the home queue (backwards compatibility; tests patch this one)."""
         return self._scrapers[str(self.group)]
 
-    def _scraper(self, group: str) -> EnergyUaScrapper:
+    def _scraper(self, group: str) -> ScheduleSource:
         if group not in self._scrapers:
-            self._scrapers[group] = EnergyUaScrapper(group)  # type: ignore[arg-type]
+            self._scrapers[group] = ScheduleSource(group)
         return self._scrapers[group]
 
     def queue_state(self, group: str) -> QueueState:
@@ -317,7 +317,7 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
             if self.home.has_cached_data:
                 # The site is down: keep the last good schedule and mark it as stale.
                 LOGGER.warning(
-                    "energy-ua is unavailable (%s, attempt %d). Showing the cached schedule from %s",
+                    "Schedule sources are unavailable (%s, attempt %d). Showing the cached schedule from %s",
                     self.home.error,
                     self.home.failures,
                     self.home.success_at,

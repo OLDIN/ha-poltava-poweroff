@@ -113,3 +113,31 @@ async def test_schedule_changed_event_entity(hass: HomeAssistant) -> None:
     assert state.attributes["day"] == "tomorrow"
     assert state.attributes["periods_text"] == "15:00–17:30"
     assert state.attributes["queue"] == "4.1"
+
+
+async def test_official_schedule_used_when_energyua_has_no_data(hass: HomeAssistant) -> None:
+    """2026-10-31: energy-ua.info showed "Немає даних" for a day with outages; poe.pl.ua had them."""
+    poe = "custom_components.poltava_poweroff.poe_scrapper.PoeScrapper.get_power_off_periods"
+    entry = MockConfigEntry(domain=DOMAIN, data={POWEROFF_GROUP_CONF: "1-1"}, title="Poltava")
+    entry.add_to_hass(hass)
+    official = ([PowerOffPeriod(6, 7.5, True), PowerOffPeriod(18, 20.5, True)], None)
+    with patch(poe, AsyncMock(return_value=official)), patch(SCRAPER, AsyncMock(return_value=(None, None))):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.power_state")
+    assert state.attributes["poweroff_periods_today"] == [{"start": 6.0, "end": 7.5}, {"start": 18.0, "end": 20.5}]
+    assert state.attributes["data_stale"] is False
+
+    # Later poe.pl.ua is down and energy-ua.info still has no data: the known schedule stays
+    with patch(poe, AsyncMock(side_effect=_poe_error())), patch(SCRAPER, AsyncMock(return_value=(None, None))):
+        await entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+    state = hass.states.get("sensor.power_state")
+    assert state.attributes["poweroff_periods_today"] == [{"start": 6.0, "end": 7.5}, {"start": 18.0, "end": 20.5}]
+
+
+def _poe_error():
+    from custom_components.poltava_poweroff.energyua_scrapper import ScraperError as PackageScraperError
+
+    return PackageScraperError("HTTP 522")

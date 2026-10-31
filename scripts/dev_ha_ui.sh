@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts a REAL Home Assistant (UI on :8124) with the poltava_poweroff integration,
-# talking to a local mock (:8798) instead of energy-ua.info. Fully automatic:
+# talking to a local mock (:8798) instead of energy-ua.info and poe.pl.ua. Fully automatic:
 # onboarding, config entry, a dashboard with the card. Lets you "break" the site and see what users see.
 #
 #   scripts/dev_ha_ui.sh up                 — start everything (HA + mock)
@@ -22,7 +22,7 @@ PORT_MOCK="${POLTAVA_MOCK_PORT:-8798}"
 BASE="http://127.0.0.1:$PORT_HA"
 MOCK="http://127.0.0.1:$PORT_MOCK"
 GROUP="${GROUP:-4-1}"
-export POLTAVA_POWEROFF_BASE_URL=$MOCK POLTAVA_MOCK_PORT=$PORT_MOCK
+export POLTAVA_POWEROFF_BASE_URL=$MOCK POLTAVA_POWEROFF_POE_URL=$MOCK/customs/newgpv-info.php POLTAVA_MOCK_PORT=$PORT_MOCK
 
 _pids_on() { lsof -ti :"$1" 2>/dev/null || true; }
 _wait_port_free() { for _ in $(seq 1 20); do [ -z "$(_pids_on "$1")" ] && return 0; sleep 1; done; return 1; }

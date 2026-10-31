@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN, POWEROFF_GROUP_CONF, PowerOffGroup, group_display
-from .energyua_scrapper import EnergyUaScrapper
+from .schedule_source import ScheduleSource
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
-    scrapper = EnergyUaScrapper(data[POWEROFF_GROUP_CONF])
+    scrapper = ScheduleSource(data[POWEROFF_GROUP_CONF])
 
     if not await scrapper.validate():
         raise CannotConnect

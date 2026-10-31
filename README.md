@@ -4,11 +4,12 @@
 
 # ⚡️ Home Assistant Poltava PowerOff
 
-An integration for electricity shutdown schedules of [PoltavaOblEnergo][poltavaoblenergo]. Based on data from [EnergyUA][energyua].
+An integration for electricity shutdown schedules of [PoltavaOblEnergo][poltavaoblenergo]. Based on the official schedule from [poe.pl.ua][poltavaoblenergo-gpv], with [EnergyUA][energyua] as a fallback.
 
 This integration for [Home Assistant][home-assistant] provides information about planned electricity shutdowns of [PoltavaOblEnergo][poltavaoblenergo] in Poltava oblast:
-calendar of planned shutdowns, time sensors for the next planned power on and off events. It is based on messages posted by a community
-driven project [EnergyUA][energyua].
+calendar of planned shutdowns, time sensors for the next planned power on and off events.
+
+**Where the schedule comes from:** first the hourly outage schedule (ГПВ) published by PoltavaOblEnergo itself on [poe.pl.ua][poltavaoblenergo-gpv]; when that site is unreachable or has no schedule for today yet, the community driven project [EnergyUA][energyua]. A day neither source has keeps its cached schedule (see [below](#when-the-sites-are-down)).
 
 **💡 Note:** This project is not affiliated with [EnergyUA][energyua] or [PoltavaOblEnergo][poltavaoblenergo] in any way. This integration is developed by an individual.
 Provided data may be incorrect or misleading, follow the official channels for reliable information.
@@ -113,11 +114,12 @@ The card has a queue chip in its header (🏠 marks your queue). Pick any of 1.1
 
 ![Queue switcher](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_queue_switcher.png)
 
-### When energy-ua.info is down
+### When the sites are down
 
 The schedule is cached on disk (`.storage/poltava_poweroff.<entry_id>`) by **date**, so:
 
-- if the site is unreachable, returns an error page, a Cloudflare challenge or "Немає даних" (no data), the last good schedule stays visible — sensors do **not** go empty or `unavailable`;
+- if poe.pl.ua is unreachable or has no schedule for today, energy-ua.info is used instead, and vice versa;
+- if both are unreachable, return an error page, a Cloudflare challenge or "Немає даних" (no data), the last good schedule stays visible — sensors do **not** go empty or `unavailable`. This also covers energy-ua.info coming back after its own downtime with an empty hourly scale under "Немає даних" (seen on 2026-10-31): that is "no data", not "no outages";
 - after a Home Assistant restart the schedule is restored from cache even if the site is still down;
 - at midnight tomorrow's schedule becomes today's automatically, without contacting the site.
 
@@ -230,9 +232,9 @@ pytest --cov=custom_components/poltava_poweroff --cov-report=html
 - `pytest.ini` adds `custom_components` and the repo root to `PYTHONPATH`
 - The minimum supported Home Assistant version is in `hacs.json` (tests also pass on 2024.11)
 
-### Local Home Assistant with a mock energy-ua (UI + screenshots)
+### Local Home Assistant with mock sites (UI + screenshots)
 
-Same approach as in `ha-silpo`: a real Home Assistant process with the integration symlinked in, talking to a local mock of energy-ua.info that you can "break" on demand.
+Same approach as in `ha-silpo`: a real Home Assistant process with the integration symlinked in, talking to a local mock of energy-ua.info and poe.pl.ua that you can "break" on demand.
 
 ```bash
 scripts/setup_dev_env.sh          # once: creates .venv-ha (HA + test deps + Playwright Chromium)
@@ -241,15 +243,16 @@ scripts/dev_ha_ui.sh mode http500 # site down → card shows cached schedule + b
 scripts/dev_ha_ui.sh mode garbage # Cloudflare / maintenance page
 scripts/dev_ha_ui.sh mode nodata  # "Немає даних" — known days are kept
 scripts/dev_ha_ui.sh mode ok
+curl -X POST 127.0.0.1:8798/_test/poe -d '{"mode": "down"}'   # poe.pl.ua only: same | ok | down | empty
 scripts/dev_ha_ui.sh restart      # restart HA only — schedule must come back from cache
 scripts/dev_ha_ui.sh shot site_down   # screenshots/site_down.png (full dashboard)
 scripts/dev_ha_ui.sh readme       # re-take the README screenshots in pics/ (incl. card_battery.png)
 scripts/dev_ha_ui.sh down
 ```
 
-The mock (`scripts/mock_energyua.py`) renders pages in the site's HTML format. Change the schedule with
+The mock (`scripts/mock_energyua.py`) renders pages in the sites' HTML format; by default poe.pl.ua follows the energy-ua `mode`. Change the schedule with
 `curl -X POST 127.0.0.1:8798/_test/schedule -d '{"today": [[8, 9.5]], "tomorrow": null}'`.
-The integration reads its base URL from `POLTAVA_POWEROFF_BASE_URL` (defaults to `https://energy-ua.info`).
+The integration reads the site addresses from `POLTAVA_POWEROFF_BASE_URL` (defaults to `https://energy-ua.info`) and `POLTAVA_POWEROFF_POE_URL` (defaults to `https://www.poe.pl.ua/customs/newgpv-info.php`).
 Runtime files (`ha_config/`, `.venv-ha/`, `screenshots/`) are git-ignored.
 
 ### Running JavaScript Tests
@@ -400,6 +403,7 @@ python scripts/bump_version.py major --pr   # breaking changes: 0.1.0 -> 1.0.0
 <!-- References -->
 
 [energyua]: https://energy-ua.info/
+[poltavaoblenergo-gpv]: https://www.poe.pl.ua/disconnection/power-outages/
 [poltavaoblenergo]: https://www.poe.pl.ua/
 [home-assistant]: https://www.home-assistant.io/
 [hacs-url]: https://github.com/hacs/integration
