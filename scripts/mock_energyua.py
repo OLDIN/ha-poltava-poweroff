@@ -7,7 +7,7 @@ HTML format as the real sites (in Ukrainian, like the sites) and has test endpoi
   POST /_test/mode   {"mode": "..."} — ok | nodata | http500 | garbage | timeout
   POST /_test/schedule {"group": "4-1", "today": [[8, 9.5]], "tomorrow": [[9, 11]] | null}
   POST /_test/delay  {"seconds": 2}  — slow site (shows the card's loading state)
-  POST /_test/poe    {"mode": "..."} — poe.pl.ua on its own: same | ok | down | empty
+  POST /_test/poe    {"mode": "..."} — poe.pl.ua on its own: same | ok | down | empty | timeout
                                         (same = follow /_test/mode; empty = "not published")
 
 Standalone:  python scripts/mock_energyua.py   (port from POLTAVA_MOCK_PORT, default 8798)
@@ -118,7 +118,11 @@ def build_app() -> web.Application:
         """POST /customs/newgpv-info.php  seldate={"date_in": "DD-MM-YYYY"}"""
         mode = app["poe_mode"]
         if mode == "same":
-            mode = {"ok": "ok", "nodata": "empty"}.get(app["mode"], "down")
+            mode = {"ok": "ok", "nodata": "empty", "timeout": "timeout"}.get(app["mode"], "down")
+        if app["delay"]:
+            await asyncio.sleep(app["delay"])
+        if mode == "timeout":
+            await asyncio.sleep(120)  # longer than the integration's request timeout
         if mode == "down":
             return web.Response(status=522, text="error code: 522")
         if mode == "empty":

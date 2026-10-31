@@ -292,7 +292,7 @@ scripts/dev_ha_ui.sh mode http500 # site down → card shows cached schedule + b
 scripts/dev_ha_ui.sh mode garbage # Cloudflare / maintenance page
 scripts/dev_ha_ui.sh mode nodata  # "Немає даних" — known days are kept
 scripts/dev_ha_ui.sh mode ok
-curl -X POST 127.0.0.1:8798/_test/poe -d '{"mode": "down"}'   # poe.pl.ua only: same | ok | down | empty
+curl -X POST 127.0.0.1:8798/_test/poe -d '{"mode": "down"}'   # poe.pl.ua only: same | ok | down | empty | timeout
 scripts/dev_ha_ui.sh restart      # restart HA only — schedule must come back from cache
 scripts/dev_ha_ui.sh shot site_down   # screenshots/site_down.png (full dashboard)
 scripts/dev_ha_ui.sh readme       # re-take the README screenshots in pics/ (incl. card_battery.png)

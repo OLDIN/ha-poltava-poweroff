@@ -42,6 +42,14 @@ def test_table_gives_the_same_periods_as_the_list(group: str) -> None:
     assert _spans(scrapper.parse(without_list, today=True)) == _spans(scrapper.parse(POE_PAGE, today=True))
 
 
+@pytest.mark.parametrize("cells", [0, 47, 49])
+def test_table_row_with_wrong_number_of_cells_is_unknown(cells: int) -> None:
+    """A truncated row must not read as "no outages" and wipe the cache."""
+    row = '<tr><td class="gpv-q">1.1</td>' + '<td class="gpv-c gpv-s1"></td>' * cells + "</tr>"
+    html = f'<table class="gpv-table"><tbody>{row}</tbody></table>'
+    assert PoeScrapper("1-1").parse(html, today=True) is None
+
+
 @pytest.mark.parametrize(
     "html",
     [

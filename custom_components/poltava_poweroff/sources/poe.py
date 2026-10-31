@@ -115,7 +115,12 @@ class PoeScrapper:
             for row in table.find_all("tr"):
                 head = row.find("td", class_="gpv-q")
                 if isinstance(head, Tag) and head.get_text(strip=True) == self.queue:
-                    return self._periods_from_cells(row.find_all("td", class_="gpv-c"), today)
+                    cells = row.find_all("td", class_="gpv-c")
+                    if len(cells) != 48:
+                        # A truncated row or another layout: unknown, not "no outages" (keeps the cache)
+                        LOGGER.debug("poe.pl.ua row %s has %d half-hour cells, expected 48", self.queue, len(cells))
+                        return None
+                    return self._periods_from_cells(cells, today)
 
         # An answer without this sub-queue (an announcement, a page from a firewall, a new layout):
         # unknown rather than "no outages", so another source or the cache is used.
