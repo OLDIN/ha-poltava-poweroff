@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from poltava_poweroff.energyua_scrapper import EnergyUaScrapper
+from poltava_poweroff.sources.energy_ua import EnergyUaScrapper
 from poltava_poweroff.entities import PowerOffPeriod
 
 
@@ -89,7 +89,7 @@ async def test_energyua_scrapper(group, test_page, expected_today, expected_tomo
     def mock_get(*args, **kwargs):
         return mock_response
 
-    with patch("poltava_poweroff.energyua_scrapper.cloudscraper.create_scraper") as mock_create_scraper:
+    with patch("poltava_poweroff.sources.energy_ua.cloudscraper.create_scraper") as mock_create_scraper:
         mock_scraper = type(
             "MockScraper",
             (),
@@ -110,7 +110,7 @@ async def test_energyua_scrapper(group, test_page, expected_today, expected_tomo
 
 def _mock_scraper(get):
     return patch(
-        "poltava_poweroff.energyua_scrapper.cloudscraper.create_scraper",
+        "poltava_poweroff.sources.energy_ua.cloudscraper.create_scraper",
         return_value=type("MockScraper", (), {"get": staticmethod(get)})(),
     )
 
@@ -131,7 +131,7 @@ def _resp(text: str, status: int = 200):
 )
 async def test_scrapper_raises_on_bad_page(response) -> None:
     """Site down / Cloudflare / maintenance -> an exception, not an empty schedule."""
-    from poltava_poweroff.energyua_scrapper import ScraperError
+    from poltava_poweroff.sources.energy_ua import ScraperError
 
     with _mock_scraper(lambda *a, **k: response), pytest.raises(ScraperError) as exc:
         await EnergyUaScrapper("1-1").get_power_off_periods()
@@ -143,7 +143,7 @@ async def test_scrapper_raises_on_bad_page(response) -> None:
 
 @pytest.mark.asyncio
 async def test_scrapper_raises_on_network_error() -> None:
-    from poltava_poweroff.energyua_scrapper import ScraperError
+    from poltava_poweroff.sources.energy_ua import ScraperError
 
     def boom(*a, **k):
         raise ConnectionError("Connection reset by peer")

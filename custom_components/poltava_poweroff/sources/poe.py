@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 import cloudscraper  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup, Tag
 
-from .energyua_scrapper import DayPeriods, EnergyUaScrapper, ScraperError
-from .entities import PowerOffPeriod
+from ..entities import PowerOffPeriod
+from .base import DayPeriods, ScraperError, merge_periods
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ def _hours(h: str, m: str) -> float:
 
 class PoeScrapper:
     """Schedule of one sub-queue from poe.pl.ua."""
+
+    site = "poe.pl.ua"
 
     def __init__(self, group: str) -> None:
         self.group = str(group)
@@ -106,7 +108,7 @@ class PoeScrapper:
                         PowerOffPeriod(_hours(h1, m1), _hours(h2, m2), today=today)
                         for h1, m1, h2, m2 in _RANGE.findall(item.get_text(" "))
                     ]
-                    return EnergyUaScrapper.merge_periods(periods)
+                    return merge_periods(periods)
 
         table = soup.find("table", class_="gpv-table")
         if isinstance(table, Tag):

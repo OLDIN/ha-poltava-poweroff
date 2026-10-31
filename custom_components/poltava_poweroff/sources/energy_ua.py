@@ -1,4 +1,4 @@
-"""Provides classes for scraping power off periods from the Energy UA website."""
+"""energy-ua.info: a community site that republishes the Poltava oblast schedule (one page per queue)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ import re
 import cloudscraper  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup, Tag
 
-from .const import BASE_URL, PowerOffGroup
-from .entities import PowerOffPeriod
+from ..const import BASE_URL
+from ..entities import PowerOffPeriod
+from .base import DayPeriods, ScraperError, merge_periods
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,20 +25,12 @@ REQUEST_TIMEOUT = 30  # seconds
 _PAGE_MARKERS = ("Графік відключень", "Періоди відключень", "ch_day_title", "scale_info_periods")
 
 
-class ScraperError(Exception):
-    """The site is unreachable or returned an unexpected page.
-
-    The message is shown on the card as is, so it is written in Ukrainian (UI text).
-    """
-
-
-DayPeriods = list[PowerOffPeriod] | None  # None = the site has no data for that day
-
-
 class EnergyUaScrapper:
     """Class for scraping power off periods from the Energy UA website."""
 
-    def __init__(self, group: PowerOffGroup) -> None:
+    site = "energy-ua.info"
+
+    def __init__(self, group: str) -> None:
         """Initialize the EnergyUaScrapper object."""
         self.group = group
         self.scraper = None
@@ -68,24 +61,8 @@ class EnergyUaScrapper:
 
     @staticmethod
     def merge_periods(periods: list[PowerOffPeriod]) -> list[PowerOffPeriod]:
-        """Merge adjacent/overlapping periods. An end of 0.0 means 24:00 (midnight at the end of the day)."""
-        if not periods:
-            return []
-
-        def end_of(p: PowerOffPeriod) -> float:
-            return 24.0 if p.end == 0.0 and p.start > 0 else p.end
-
-        periods.sort(key=lambda x: x.start)
-        merged_periods = [periods[0]]
-        for current in periods[1:]:
-            last = merged_periods[-1]
-            if current.start <= end_of(last):
-                new_end = max(end_of(last), end_of(current))
-                last.end = 0.0 if new_end >= 24.0 else new_end
-                continue
-            merged_periods.append(current)
-
-        return merged_periods
+        """Merge adjacent/overlapping periods (kept here for backwards compatibility)."""
+        return merge_periods(periods)
 
     async def _fetch_page(self) -> str:
         scraper = await self._get_scraper()

@@ -30,6 +30,7 @@ from .const import (
     DOMAIN,
     EVENT_SCHEDULE_CHANGED,
     EVENT_SCHEDULE_PUBLISHED,
+    CONF_SOURCE,
     POWEROFF_GROUP_CONF,
     STATE_OFF,
     STATE_ON,
@@ -41,7 +42,8 @@ from .const import (
     signal_schedule_changed,
 )
 from .entities import PowerOffPeriod
-from .schedule_source import ScheduleSource
+from .sources import get_source
+from .sources.base import ScheduleProvider
 
 LOGGER = logging.getLogger(__name__)
 
@@ -165,22 +167,23 @@ class PoltavaPowerOffCoordinator(DataUpdateCoordinator):
         self.hass = hass
         self.config_entry = config_entry
         self.group: PowerOffGroup = config_entry.data[POWEROFF_GROUP_CONF]
+        self.source = get_source(config_entry.data.get(CONF_SOURCE))
         self.view_group: str = str(self.group)
         self.queues: dict[str, QueueState] = {str(self.group): QueueState(str(self.group))}
-        self._scrapers: dict[str, ScheduleSource] = {str(self.group): ScheduleSource(self.group)}
+        self._scrapers: dict[str, ScheduleProvider] = {str(self.group): self.source.create(str(self.group))}
         self._locks: dict[str, asyncio.Lock] = {}
         self._store: Store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{config_entry.entry_id}")
 
     # ------------------------------------------------------------- accessors
 
     @property
-    def api(self) -> ScheduleSource:
+    def api(self) -> ScheduleProvider:
         """Scraper of the home queue (backwards compatibility; tests patch this one)."""
         return self._scrapers[str(self.group)]
 
-    def _scraper(self, group: str) -> ScheduleSource:
+    def _scraper(self, group: str) -> ScheduleProvider:
         if group not in self._scrapers:
-            self._scrapers[group] = ScheduleSource(group)
+            self._scrapers[group] = self.source.create(group)
         return self._scrapers[group]
 
     def queue_state(self, group: str) -> QueueState:

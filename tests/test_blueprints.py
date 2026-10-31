@@ -17,7 +17,7 @@ from custom_components.poltava_poweroff.const import DOMAIN, POWEROFF_GROUP_CONF
 from custom_components.poltava_poweroff.entities import PowerOffPeriod
 
 BLUEPRINTS = Path(__file__).parent.parent / "blueprints" / "automation" / "poltava_poweroff"
-SCRAPER = "custom_components.poltava_poweroff.energyua_scrapper.EnergyUaScrapper.get_power_off_periods"
+SCRAPER = "custom_components.poltava_poweroff.sources.energy_ua.EnergyUaScrapper.get_power_off_periods"
 
 
 def _install_blueprints(hass: HomeAssistant) -> None:

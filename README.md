@@ -34,7 +34,21 @@ If it doesn't work, adding this repository to HACS manually by adding this URL:
 
 This integration is configurable via UI. On **Settings → Devices & Services** page, click **Add Integration** and search for **Poltava Power Offline**.
 
-Find your queue (1.1 … 6.2) on the [EnergyUA][energyua] website by typing your address, then pick it from the dropdown. The same queue can be added only once.
+1. **Pick the schedule source** (where the outage schedule comes from):
+
+   ![Choosing the schedule source](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/config_source.png)
+
+   | Source | What it does |
+   |---|---|
+   | **Poltava oblast — poe.pl.ua, energy-ua.info as a fallback** (default, recommended) | The official Poltavaoblenergo schedule; energy-ua.info when poe.pl.ua is down or has no schedule for today yet |
+   | Poltava oblast — poe.pl.ua only | Only the official site |
+   | Poltava oblast — energy-ua.info only | Only the community site (the behaviour before 0.6.0) |
+
+2. **Pick your queue** (1.1 … 6.2). Find it by your address on [poe.pl.ua][poltavaoblenergo-gpv] or [EnergyUA][energyua].
+
+The same queue from the same source can be added only once. To switch the source or the queue later, open the entry in **Settings → Devices & Services** and choose **⋮ → Reconfigure**: the entities, their history and your automations stay. Entries created before 0.6.0 use the default source.
+
+Other regions can be added as new sources, see [Adding a schedule source](#adding-a-schedule-source).
 
 ![Outage card](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card.png)
 
@@ -201,6 +215,41 @@ The integration ships its own icon and logo in `custom_components/poltava_powero
 The card uses its own font (Inter, bundled in `www/fonts/`), so it looks the same on every device and works offline.
 
 > If your dashboards use YAML mode for resources, add `/local/poltava_poweroff/poweroff-timeline-card.js` (type: module) to `lovelace: resources:` yourself.
+
+## Adding a schedule source
+
+Sources live in [`custom_components/poltava_poweroff/sources/`](custom_components/poltava_poweroff/sources/). To support another region or site:
+
+1. **Write a provider** in `sources/<name>.py` — a class with:
+
+   ```python
+   class MyCityScrapper:
+       site = "example.com"                      # shown in errors and logs
+
+       def __init__(self, queue: str) -> None:   # queue id such as "1-1"
+           ...
+
+       async def get_power_off_periods(self) -> tuple[DayPeriods, DayPeriods]:
+           """(today, tomorrow): a list of PowerOffPeriod (hours from midnight, end 0.0 = 24:00),
+           [] = no outages that day, None = the site has no data for that day."""
+
+       async def validate(self) -> bool:         # the site answers (used when adding the integration)
+           ...
+   ```
+
+   Raise `ScraperError` with a short Ukrainian message (it is shown on the card) when the site is down or returns an unexpected page — never return `[]` for an error page, that would wipe the cached schedule. See [`sources/base.py`](custom_components/poltava_poweroff/sources/base.py) for the contract and helpers (`merge_periods`, `FallbackProvider` to chain several sites).
+
+2. **Register it** in [`sources/__init__.py`](custom_components/poltava_poweroff/sources/__init__.py):
+
+   ```python
+   SourceInfo(id="mycity", title="MyCity Power Offline", queues=UA_QUEUES, factory=MyCityScrapper),
+   ```
+
+   The `id` is stored in config entries, so it must never change once released. `queues` lists the queue ids the user can pick.
+
+3. **Name it** in the `selector.source.options` section of `strings.json`, `translations/en.json` and `translations/uk.json` (a test checks that every source has a name in every file).
+
+4. **Test it** with a saved page from the site, like [`tests/test_sources.py`](tests/test_sources.py) does for poe.pl.ua, and add a mock route in `scripts/mock_energyua.py` if you want to try it in the local Home Assistant.
 
 ## Dev Container workflow
 

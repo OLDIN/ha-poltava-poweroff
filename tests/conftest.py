@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 # The integration is imported under two names in the tests (pytest.ini pythonpath and the package)
-_POE_MODULES = ("poltava_poweroff.poe_scrapper", "custom_components.poltava_poweroff.poe_scrapper")
+_POE_MODULES = ("poltava_poweroff.sources.poe", "custom_components.poltava_poweroff.sources.poe")
 
 
 @pytest.fixture(autouse=True)

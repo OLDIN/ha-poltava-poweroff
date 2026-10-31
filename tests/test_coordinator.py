@@ -11,7 +11,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from poltava_poweroff.const import DOMAIN, POWEROFF_GROUP_CONF, STORAGE_KEY
 from poltava_poweroff.coordinator import PoltavaPowerOffCoordinator
-from poltava_poweroff.energyua_scrapper import ScraperError
+from poltava_poweroff.sources.energy_ua import ScraperError
 from poltava_poweroff.entities import PowerOffPeriod
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 

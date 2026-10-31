@@ -6,6 +6,8 @@ from enum import StrEnum
 DOMAIN = "poltava_poweroff"
 
 POWEROFF_GROUP_CONF = "poweroff_group"
+# Which schedule source the entry uses (an id from sources.SOURCES)
+CONF_SOURCE = "source"
 
 UPDATE_INTERVAL = 300  # 5 minutes: balance between freshness and load on the site
 

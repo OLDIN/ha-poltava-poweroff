@@ -1,4 +1,4 @@
-"""poe.pl.ua parser and the poe.pl.ua -> energy-ua.info fallback."""
+"""poe.pl.ua parser, the fallback chain and the source registry."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from poltava_poweroff.energyua_scrapper import ScraperError
+from poltava_poweroff.sources.energy_ua import ScraperError
 from poltava_poweroff.entities import PowerOffPeriod
-from poltava_poweroff.poe_scrapper import PoeScrapper
-from poltava_poweroff.schedule_source import ScheduleSource
+from poltava_poweroff.sources.poe import PoeScrapper
+from poltava_poweroff.sources import DEFAULT_SOURCE, SOURCES, get_source
+from poltava_poweroff.sources.base import FallbackProvider
+from poltava_poweroff.sources.energy_ua import EnergyUaScrapper
 
 POE_PAGE = (Path(__file__).parent / "poe_gpv_2026-10-31.html").read_text(encoding="utf-8")
 
@@ -84,7 +86,7 @@ async def test_site_errors_raise(post, message: str) -> None:
         await scrapper.get_power_off_periods()
 
 
-# ---------------------------------------------------------------- ScheduleSource
+# ---------------------------------------------------------- FallbackProvider
 
 TODAY = [PowerOffPeriod(6, 7.5, True)]
 TOMORROW = [PowerOffPeriod(9, 11, False)]
@@ -92,8 +94,9 @@ UA_TODAY = [PowerOffPeriod(1, 2, True)]
 UA_TOMORROW = [PowerOffPeriod(3, 4, False)]
 
 
-def _source(poe, energyua) -> ScheduleSource:
-    source = ScheduleSource("1-1")
+def _source(poe, energyua) -> FallbackProvider:
+    source = FallbackProvider([PoeScrapper("1-1"), EnergyUaScrapper("1-1")])
+    source.poe, source.energyua = source.providers  # type: ignore[attr-defined]
     source.poe.get_power_off_periods = AsyncMock(**poe)
     source.energyua.get_power_off_periods = AsyncMock(**energyua)
     return source
@@ -129,8 +132,41 @@ async def test_both_down_raises_one_readable_error() -> None:
 
 
 async def test_validate_accepts_either_source() -> None:
-    source = ScheduleSource("1-1")
-    with patch.object(source.poe, "validate", AsyncMock(return_value=False)), patch.object(
-        source.energyua, "validate", AsyncMock(return_value=True)
+    poe, energyua = PoeScrapper("1-1"), EnergyUaScrapper("1-1")
+    source = FallbackProvider([poe, energyua])
+    with patch.object(poe, "validate", AsyncMock(return_value=False)), patch.object(
+        energyua, "validate", AsyncMock(return_value=True)
     ):
         assert await source.validate()
+
+
+# ---------------------------------------------------------------- registry
+
+
+def test_registry_has_the_poltava_sources_with_12_queues() -> None:
+    assert DEFAULT_SOURCE == "poltava"
+    assert set(SOURCES) == {"poltava", "poltava_poe", "poltava_energy_ua"}
+    for source in SOURCES.values():
+        assert source.queues[0] == "1-1" and source.queues[-1] == "6-2" and len(source.queues) == 12
+
+
+def test_default_source_asks_poe_first_then_energyua() -> None:
+    provider = SOURCES["poltava"].create("4-1")
+    assert isinstance(provider, FallbackProvider)
+    assert [p.site for p in provider.providers] == ["poe.pl.ua", "energy-ua.info"]
+    assert isinstance(SOURCES["poltava_poe"].create("4-1"), PoeScrapper)
+    assert isinstance(SOURCES["poltava_energy_ua"].create("4-1"), EnergyUaScrapper)
+
+
+def test_unknown_source_falls_back_to_default() -> None:
+    assert get_source(None).id == "poltava"
+    assert get_source("removed_city").id == "poltava"
+
+
+def test_every_source_has_a_name_in_every_translation() -> None:
+    import json
+
+    base = Path(__file__).parent.parent / "custom_components" / "poltava_poweroff"
+    for file in ["strings.json", "translations/en.json", "translations/uk.json"]:
+        options = json.loads((base / file).read_text(encoding="utf-8"))["selector"]["source"]["options"]
+        assert set(options) == set(SOURCES), file

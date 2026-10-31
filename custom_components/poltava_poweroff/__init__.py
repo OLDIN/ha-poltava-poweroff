@@ -81,6 +81,26 @@ async def _async_register_card_resource(hass: HomeAssistant, url: str) -> None:
     await resources.async_create_item({"res_type": "module", "url": url})
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Version 1 entries had no source (they were Poltava, energy-ua.info): give them the default one."""
+    if entry.version > 2:
+        return False  # created by a newer version of the integration
+    if entry.version == 1:
+        from .config_flow import unique_id_for
+        from .const import CONF_SOURCE, POWEROFF_GROUP_CONF
+        from .sources import DEFAULT_SOURCE
+
+        queue = entry.data[POWEROFF_GROUP_CONF]
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_SOURCE: DEFAULT_SOURCE},
+            unique_id=unique_id_for(DEFAULT_SOURCE, queue),
+            version=2,
+        )
+        _LOGGER.info("Migrated %s to config entry version 2 (source %s)", entry.title, DEFAULT_SOURCE)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Poltava Power Offline from a config entry."""
 

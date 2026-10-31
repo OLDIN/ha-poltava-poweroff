@@ -18,12 +18,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import PowerOffGroup, group_display
+from .const import group_display
 from .coordinator import PoltavaPowerOffCoordinator
 
 LOGGER = logging.getLogger(__name__)
-
-OPTIONS = [group_display(g.value) for g in PowerOffGroup]
 
 
 async def async_setup_entry(
@@ -41,17 +39,18 @@ class PoltavaViewQueueSelect(CoordinatorEntity[PoltavaPowerOffCoordinator], Sele
 
     _attr_icon = "mdi:format-list-numbered"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = OPTIONS
     _attr_name = "Poweroff view queue"
 
     def __init__(self, coordinator: PoltavaPowerOffCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}-view_queue"
+        # The queues of the entry's source ("1.1" … "6.2" for Poltava)
+        self._attr_options = [group_display(q) for q in coordinator.source.queues]
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
-        if last and last.state in OPTIONS:
+        if last and last.state in self.options:
             group = last.state.replace(".", "-")
             if group != self.coordinator.view_group:
                 # The cache is already loaded; fresh data is fetched in the background without blocking HA startup
