@@ -3,24 +3,46 @@
     "step": {
       "user": {
         "title": "Poltava Power Offline",
-        "description": "Choose your outage queue. Find it on energy-ua.info by your address.",
+        "description": "Where to take the outage schedule from.",
+        "data": {
+          "source": "Schedule source"
+        }
+      },
+      "queue": {
+        "title": "Queue",
+        "description": "Choose your outage queue (look it up by your address on the source's site).",
+        "data": {
+          "poweroff_group": "Queue"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the schedule source",
+        "description": "Entities, their history and automations stay; only the place the schedule comes from changes.",
+        "data": {
+          "source": "Schedule source"
+        }
+      },
+      "reconfigure_queue": {
+        "title": "Queue",
+        "description": "Choose your outage queue (look it up by your address on the source's site).",
         "data": {
           "poweroff_group": "Queue"
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot reach energy-ua.info. Try again later.",
+      "cannot_connect": "The source's site does not answer. Try again later or pick another source.",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This queue is already added"
+      "already_configured": "This queue is already added",
+      "reconfigure_successful": "Settings updated"
     }
   },
   "services": {
     "refresh": {
       "name": "Refresh schedule",
-      "description": "Fetch the outage schedule from energy-ua.info right now."
+      "description": "Fetch the outage schedule from the selected source right now."
     }
   },
   "entity": {
@@ -35,6 +57,15 @@
             }
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "source": {
+      "options": {
+        "poltava": "Poltava oblast — poe.pl.ua (Poltavaoblenergo), energy-ua.info as a fallback (recommended)",
+        "poltava_poe": "Poltava oblast — poe.pl.ua only (Poltavaoblenergo, official)",
+        "poltava_energy_ua": "Poltava oblast — energy-ua.info only"
       }
     }
   }
