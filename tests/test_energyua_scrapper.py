@@ -46,6 +46,12 @@ def load_energyua_page(test_page: str) -> str:
         ),
         (
             "1.1",
+            "energyua_11_nodata_empty_scale.html",
+            None,  # an empty hourly scale under "Немає даних" (after the site's downtime): unknown, not "no outages"
+            None,
+        ),
+        (
+            "1.1",
             "energyua_2_days.html",
             [
                 PowerOffPeriod(4, 7.5, today=True),

@@ -142,6 +142,9 @@ class EnergyUaScrapper:
         all_scale_info_periods = soup.find_all("div", class_="scale_info_periods")
         today_periods_found = False
         tomorrow_periods_found = False
+        # The day's periods block explicitly says "Немає даних" (no data)
+        today_no_data = False
+        tomorrow_no_data = False
 
         for scale_info_block in all_scale_info_periods:
             if not isinstance(scale_info_block, Tag):
@@ -152,12 +155,15 @@ class EnergyUaScrapper:
                 continue
 
             title_text = title.get_text().strip().lower()
+            no_data = scale_info_block.find("div", class_="no_data") is not None
             if "сьогодні" in title_text or "сегодня" in title_text:
+                today_no_data = today_no_data or no_data
                 periods = self._parse_periods_from_text_block(scale_info_block, today=True)
                 if periods:
                     today_results.extend(periods)
                     today_periods_found = True
             elif "завтра" in title_text:
+                tomorrow_no_data = tomorrow_no_data or no_data
                 periods = self._parse_periods_from_text_block(scale_info_block, today=False)
                 if periods:
                     tomorrow_results.extend(periods)
@@ -201,6 +207,13 @@ class EnergyUaScrapper:
                         if item.find("span", class_="hour_active"):
                             start, end = self._parse_item(item)
                             target.append(PowerOffPeriod(start, end, today=is_today))
+
+        # An empty scale under "Немає даних" is not a day without outages: the site lost or has not
+        # published the data (seen right after its downtime). Keep the day unknown so the cache stays.
+        if today_no_data and not today_results:
+            today_scale_found = False
+        if tomorrow_no_data and not tomorrow_results:
+            tomorrow_scale_found = False
 
         today_final: DayPeriods = (
             self.merge_periods(today_results) if (today_periods_found or today_scale_found) else None
