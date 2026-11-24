@@ -722,6 +722,41 @@ describe('PowerOffTimelineCard', () => {
       }
       expect(result.match).toBe(true);
     }, 30000);
+
+    it('should match image snapshot for charge-complete mark', async () => {
+      // Clock is frozen at 12:10; 2 h to full, charged to 80% from 50% -> 1.2 h -> done at 13:22, before the outage at 18:30
+      card.setConfig({
+        entity: 'sensor.power_state',
+        charge_entity: 'sensor.charge_time',
+        charge_soc_entity: 'sensor.soc',
+        charge_target: 80,
+      });
+      card.hass = {
+        states: {
+          ...mockHass.states,
+          'sensor.power_state': {
+            ...mockHass.states['sensor.power_state'],
+            state: 'Power ON',
+            attributes: {
+              ...mockHass.states['sensor.power_state'].attributes,
+              next_off: '2026-10-27T18:30:00',
+              next_on: '2026-10-27T20:30:00',
+            },
+          },
+          'sensor.charge_time': { state: '2h', attributes: { label: 'Time to full' } },
+          'sensor.soc': { state: '50', attributes: {} },
+        },
+      };
+      card.selectedTab = 'today';
+      card.updateTimeline();
+
+      const screenshot = await render.screenshot(createHtmlForScreenshot(card));
+      const result = await compareImageSnapshot(screenshot, 'charge-complete-mark');
+      if (result.isNew) {
+        console.log('Created new snapshot: charge-complete-mark.png');
+      }
+      expect(result.match).toBe(true);
+    }, 30000);
   });
 
   describe('Time Formatting', () => {
