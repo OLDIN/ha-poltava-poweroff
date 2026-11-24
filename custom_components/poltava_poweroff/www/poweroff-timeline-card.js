@@ -298,7 +298,8 @@ const EDITOR_HELPERS = {
     'Необов\'язково. Сенсор із залишком часу роботи акумулятора чи ДБЖ (год, хв, с або «Г:ХХ»). '
     + 'Картка покаже червону лінію, коли він сяде.',
   charge_entity:
-    'Необов\'язково. Сенсор із часом до повного заряду (год, хв, с, «Г:ХХ» або «0h 29m»). '
+    'Необов\'язково. Сенсор із часом до повного заряду (год, хв, с, «Г:ХХ», «0h 29m») '
+    + 'або з моментом, коли зарядиться (дата й час, device_class: timestamp). '
     + 'Картка покаже синю лінію, коли акумулятор зарядиться.',
   charge_soc_entity:
     'Потрібен, лише якщо заряджати не до 100%: заряд акумулятора у відсотках. '
@@ -311,15 +312,21 @@ const EDITOR_HELPERS = {
 
 /**
  * Remaining time of a state object, in hours: hours by default, or converted from the entity's unit
- * (min, s, d); "H:MM[:SS]" and "Xh Ym" ("0h 29m", "2h", "45m") strings are accepted too. null when unknown.
+ * (min, s, d); "H:MM[:SS]" and "Xh Ym" ("0h 29m", "2h", "45m") strings are accepted too. A moment in time
+ * (an ISO timestamp, as a `device_class: timestamp` sensor has) counts as the time left until it, from `now`.
+ * null when unknown, or when that moment has passed.
  */
-function parseDurationHours(obj) {
+function parseDurationHours(obj, now = new Date()) {
   if (!obj) return null;
   const raw = String(obj.state).trim();
   let hours;
+  const moment = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw) ? Date.parse(raw.replace(' ', 'T')) : null;
   const clock = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
   const words = raw.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?$/i);
-  if (clock) {
+  if (moment !== null) {
+    if (Number.isNaN(moment)) return null;
+    hours = (moment - now.getTime()) / 3600000;
+  } else if (clock) {
     hours = Number(clock[1]) + Number(clock[2]) / 60 + Number(clock[3] || 0) / 3600;
   } else if (words && (words[1] || words[2])) {
     hours = Number(words[1] || 0) + Number(words[2] || 0) / 60;
@@ -743,7 +750,7 @@ class PowerOffTimelineCard extends HTMLElement {
     const id = this.config.charge_entity;
     const obj = id && states[id];
     if (!obj || /empty/i.test(String((obj.attributes || {}).label ?? ''))) return null;
-    const toFull = parseDurationHours(obj);
+    const toFull = parseDurationHours(obj, now);
     if (toFull === null || toFull <= 0) return null;
 
     let target = this.chargeTarget();

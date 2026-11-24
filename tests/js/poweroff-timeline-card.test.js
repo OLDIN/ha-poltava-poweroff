@@ -1210,6 +1210,41 @@ describe('PowerOffTimelineCard', () => {
       expect(forecast(makeHass({ 'sensor.charge_time': full('90', { unit_of_measurement: 'min' }) })).hours).toBeCloseTo(1.5);
     });
 
+    it('accepts an ISO timestamp (device_class: timestamp) as the moment it is full', () => {
+      config();
+      const at = (h) => new Date(Date.now() + h * HOUR);
+      const ts = { device_class: 'timestamp' };
+      expect(forecast(makeHass({ 'sensor.charge_time': full(at(2).toISOString(), ts) })).hours).toBeCloseTo(2, 1);
+      // an offset form, as HA prints it, and a space instead of "T"
+      const offset = at(1.5).toISOString().replace('Z', '+00:00');
+      expect(forecast(makeHass({ 'sensor.charge_time': full(offset, ts) })).hours).toBeCloseTo(1.5, 1);
+      const local = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} `
+        + `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
+      expect(forecast(makeHass({ 'sensor.charge_time': full(local(at(3)), {}) })).hours).toBeCloseTo(3, 0);
+    });
+
+    it('scales a timestamp to the target like a duration', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      const f = forecast(makeHass({
+        'sensor.charge_time': full(new Date(Date.now() + 2 * HOUR).toISOString(), { device_class: 'timestamp' }),
+        'sensor.soc': { state: '50', attributes: {} },
+      }));
+      expect(f.hours).toBeCloseTo(1.2, 1);
+    });
+
+    it('has no forecast for a timestamp in the past or a date without a time', () => {
+      config();
+      const past = new Date(Date.now() - HOUR).toISOString();
+      expect(forecast(makeHass({ 'sensor.charge_time': full(past, { device_class: 'timestamp' }) }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2099-01-01', {}) }))).toBeNull();
+    });
+
+    it('accepts a timestamp for battery_entity too', () => {
+      card.setConfig({ entity: 'sensor.power_state', battery_entity: 'sensor.battery_runtime' });
+      card.hass = makeHass({ 'sensor.battery_runtime': { state: new Date(Date.now() + 1.5 * HOUR).toISOString(), attributes: { device_class: 'timestamp' } } });
+      expect(card.batteryHours()).toBeCloseTo(1.5, 1);
+    });
+
     it('scales the time to the target percent', () => {
       config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
       const f = forecast(makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } }));

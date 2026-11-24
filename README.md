@@ -224,7 +224,11 @@ charge_soc_entity: sensor.battery_level           # optional: charge level, %, o
 charge_target: input_number.battery_charge_target  # optional: a number (80) or an entity; default 100
 ```
 
-- `charge_entity` accepts hours (or `min` / `s` / `d` units), `"H:MM"` and `"0h 29m"` / `"2h"` / `"45m"` strings.
+- `charge_entity` accepts a **duration** (a number in hours, or with `min` / `s` / `d` units; `"H:MM"`; `"0h 29m"` / `"2h"` / `"45m"`)
+  or a **moment in time**: an ISO date-time such as `2026-11-24T17:25:00+02:00`, which is what a sensor with
+  `device_class: timestamp` reports. A moment that has already passed, or a date without a time, shows nothing.
+  The same formats work for `battery_entity`. If you can choose, a numeric `duration` sensor (or a `timestamp`) is the
+  cleanest input; the text forms exist for sensors you cannot change.
 - A **blue line** on the spiral marks the moment charging finishes (on the tab of that day), with a legend item.
   The line under the spiral reads *«Зарядиться до 90% о 17:25, світло до 18:00»*: green when charging ends before
   the next outage, red when it does not. While the power is off there is no comparison.
