@@ -291,6 +291,30 @@ const EDITOR_HELPERS = {
   auto_tomorrow: 'Коли сьогоднішні відключення минули, показувати графік на завтра.',
 };
 
+/**
+ * Remaining time of a state object, in hours: hours by default, or converted from the entity's unit
+ * (min, s, d); "H:MM[:SS]" and "Xh Ym" ("0h 29m", "2h", "45m") strings are accepted too. null when unknown.
+ */
+function parseDurationHours(obj) {
+  if (!obj) return null;
+  const raw = String(obj.state).trim();
+  let hours;
+  const clock = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+  const words = raw.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?$/i);
+  if (clock) {
+    hours = Number(clock[1]) + Number(clock[2]) / 60 + Number(clock[3] || 0) / 3600;
+  } else if (words && (words[1] || words[2])) {
+    hours = Number(words[1] || 0) + Number(words[2] || 0) / 60;
+  } else {
+    const value = Number(raw);
+    if (raw === '' || !Number.isFinite(value)) return null;
+    const unit = String((obj.attributes || {}).unit_of_measurement || 'h').toLowerCase();
+    const factor = { s: 1 / 3600, sec: 1 / 3600, min: 1 / 60, m: 1 / 60, d: 24 }[unit] ?? 1;
+    hours = value * factor;
+  }
+  return hours >= 0 ? hours : null;
+}
+
 class PowerOffTimelineCard extends HTMLElement {
   /** Default config for the card picker: the integration's state sensor, if there is one. */
   static getStubConfig(hass) {
@@ -650,21 +674,53 @@ class PowerOffTimelineCard extends HTMLElement {
    */
   batteryHours() {
     const id = this.config.battery_entity;
-    const obj = id && this._hass.states[id];
-    if (!obj) return null;
-    const raw = String(obj.state).trim();
-    let hours;
-    const clock = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
-    if (clock) {
-      hours = Number(clock[1]) + Number(clock[2]) / 60 + Number(clock[3] || 0) / 3600;
-    } else {
-      const value = Number(raw);
-      if (raw === '' || !Number.isFinite(value)) return null;
-      const unit = String((obj.attributes || {}).unit_of_measurement || 'h').toLowerCase();
-      const factor = { s: 1 / 3600, sec: 1 / 3600, min: 1 / 60, m: 1 / 60, d: 24 }[unit] ?? 1;
-      hours = value * factor;
+    return parseDurationHours(id && this._hass.states[id]);
+  }
+
+  /** Percent the battery is charged to: `charge_target` (number or entity), 100 when missing or invalid. */
+  chargeTarget() {
+    const cfg = this.config.charge_target;
+    if (cfg === undefined || cfg === null || cfg === '') return 100;
+    let value = Number(cfg);
+    if (Number.isNaN(value) && typeof cfg === 'string') {
+      const obj = this._hass.states[cfg];
+      value = obj ? Number(String(obj.state).trim() || NaN) : NaN;
     }
-    return hours >= 0 ? hours : null;
+    return Number.isFinite(value) && value > 0 && value <= 100 ? value : 100;
+  }
+
+  /**
+   * When charging finishes, from `charge_entity` (time to full). A target below 100% scales it by
+   * the remaining percent, which needs `charge_soc_entity`. null when there is nothing to show:
+   * no/unavailable sensor, zero time, a "time to empty" label (discharging) or already at the target.
+   * `until` is the next power-off, used only while the power is on; `ok` says whether charging ends before it.
+   */
+  chargeForecast(now, nextOffIso, powerOn) {
+    const states = this._hass.states;
+    const id = this.config.charge_entity;
+    const obj = id && states[id];
+    if (!obj || /empty/i.test(String((obj.attributes || {}).label ?? ''))) return null;
+    const toFull = parseDurationHours(obj);
+    if (toFull === null || toFull <= 0) return null;
+
+    let target = this.chargeTarget();
+    let hours = toFull;
+    if (target < 100) {
+      const socObj = this.config.charge_soc_entity && states[this.config.charge_soc_entity];
+      const raw = socObj ? String(socObj.state).trim() : '';
+      const soc = raw === '' ? NaN : Number(raw);
+      if (Number.isFinite(soc)) {
+        if (soc >= target) return null;
+        hours = (toFull * (target - soc)) / (100 - soc);
+      } else {
+        target = 100; // no readable charge level: the sensor's own time (to 100%) is all we have
+      }
+    }
+
+    const done = new Date(now.getTime() + hours * 3600000);
+    const off = nextOffIso ? new Date(nextOffIso) : null;
+    const until = powerOn && off && !Number.isNaN(off.getTime()) && off > now ? off : null;
+    return { hours, done, target, until, ok: until ? done <= until : null };
   }
 
   /** Until when the battery lasts and whether that covers the next power-on (end of the next/current outage). */

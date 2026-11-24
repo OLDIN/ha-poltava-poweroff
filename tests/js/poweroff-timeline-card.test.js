@@ -1138,6 +1138,102 @@ describe('PowerOffTimelineCard', () => {
     });
   });
 
+  describe('Charge mark', () => {
+    const HOUR = 3600000;
+    const full = (state, attributes = { label: 'Time to full' }) => ({ state, attributes });
+    // Power is on, next outage in `nextOffInHours`
+    const makeHass = (extra, { nextOffInHours = 3, power = 'on' } = {}) => ({
+      states: {
+        'sensor.power_state': {
+          ...mockHass.states['sensor.power_state'],
+          state: power,
+          attributes: {
+            ...mockHass.states['sensor.power_state'].attributes,
+            next_off: new Date(Date.now() + nextOffInHours * HOUR).toISOString(),
+          },
+        },
+        ...extra,
+      },
+    });
+    const config = (extra = {}) => card.setConfig({ entity: 'sensor.power_state', charge_entity: 'sensor.charge_time', ...extra });
+    const forecast = (hass, nextOffIso = null, powerOn = true) => {
+      card.hass = hass;
+      return card.chargeForecast(new Date(), nextOffIso, powerOn);
+    };
+    const showDayOf = (date) => {
+      card._userPickedTab = true;
+      card.selectedTab = date.toDateString() === new Date().toDateString() ? 'today' : 'tomorrow';
+      card.updateTimeline();
+    };
+
+    it('parses "0h 29m", "2h", "45m" and keeps the old formats', () => {
+      config();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 29m') })).hours).toBeCloseTo(29 / 60);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h') })).hours).toBeCloseTo(2);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('45m') })).hours).toBeCloseTo(0.75);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('1:30', {}) })).hours).toBeCloseTo(1.5);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('90', { unit_of_measurement: 'min' }) })).hours).toBeCloseTo(1.5);
+    });
+
+    it('scales the time to the target percent', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      const f = forecast(makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } }));
+      expect(f.target).toBe(80);
+      expect(f.hours).toBeCloseTo(1.2, 2); // 2 h × (80 − 50) / (100 − 50)
+    });
+
+    it('reads the target from an entity', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 'input_number.target' });
+      const f = forecast(makeHass({
+        'sensor.charge_time': full('2h'),
+        'sensor.soc': { state: '50', attributes: {} },
+        'input_number.target': { state: '90', attributes: {} },
+      }));
+      expect(f.target).toBe(90);
+      expect(f.hours).toBeCloseTo(1.6, 2);
+    });
+
+    it('treats an invalid or missing target as 100', () => {
+      const states = { 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } };
+      [undefined, 'abc', 150, -5, 0, 'input_number.gone'].forEach((charge_target) => {
+        config({ charge_soc_entity: 'sensor.soc', charge_target });
+        const f = forecast(makeHass(states));
+        expect(f.target).toBe(100);
+        expect(f.hours).toBeCloseTo(2);
+      });
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 'input_number.t' });
+      const f = forecast(makeHass({ ...states, 'input_number.t': { state: 'unavailable', attributes: {} } }));
+      expect(f.target).toBe(100);
+    });
+
+    it('ignores a target below 100 when there is no usable soc', () => {
+      config({ charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h') })).hours).toBeCloseTo(2);
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: 'unavailable', attributes: {} } })).hours).toBeCloseTo(2);
+    });
+
+    it('has no forecast when it is discharging, empty, unavailable or already at the target', () => {
+      config();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 29m', { label: 'Time to empty' }) }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 0m') }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('unavailable', {}) }))).toBeNull();
+      expect(forecast(makeHass({}))).toBeNull();
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('1h'), 'sensor.soc': { state: '85', attributes: {} } }))).toBeNull();
+    });
+
+    it('compares the end of charging with the next power-off only while the power is on', () => {
+      config();
+      const states = { 'sensor.charge_time': full('1h') };
+      const off = new Date(Date.now() + 3 * HOUR).toISOString();
+      expect(forecast(makeHass(states), off, true).ok).toBe(true);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('4h') }), off, true).ok).toBe(false);
+      expect(forecast(makeHass(states), off, false).ok).toBeNull();
+      expect(forecast(makeHass(states), null, true).ok).toBeNull();
+    });
+  });
+
   describe('Visual editor', () => {
     const Card = () => dom.window.customElements.get('poweroff-timeline-card');
     const withSelect = () => ({
