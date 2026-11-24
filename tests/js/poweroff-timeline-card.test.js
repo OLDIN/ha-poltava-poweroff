@@ -722,6 +722,41 @@ describe('PowerOffTimelineCard', () => {
       }
       expect(result.match).toBe(true);
     }, 30000);
+
+    it('should match image snapshot for charge-complete mark', async () => {
+      // Clock is frozen at 12:10; 2 h to full, charged to 80% from 50% -> 1.2 h -> done at 13:22, before the outage at 18:30
+      card.setConfig({
+        entity: 'sensor.power_state',
+        charge_entity: 'sensor.charge_time',
+        charge_soc_entity: 'sensor.soc',
+        charge_target: 80,
+      });
+      card.hass = {
+        states: {
+          ...mockHass.states,
+          'sensor.power_state': {
+            ...mockHass.states['sensor.power_state'],
+            state: 'Power ON',
+            attributes: {
+              ...mockHass.states['sensor.power_state'].attributes,
+              next_off: '2026-10-27T18:30:00',
+              next_on: '2026-10-27T20:30:00',
+            },
+          },
+          'sensor.charge_time': { state: '2h', attributes: { label: 'Time to full' } },
+          'sensor.soc': { state: '50', attributes: {} },
+        },
+      };
+      card.selectedTab = 'today';
+      card.updateTimeline();
+
+      const screenshot = await render.screenshot(createHtmlForScreenshot(card));
+      const result = await compareImageSnapshot(screenshot, 'charge-complete-mark');
+      if (result.isNew) {
+        console.log('Created new snapshot: charge-complete-mark.png');
+      }
+      expect(result.match).toBe(true);
+    }, 30000);
   });
 
   describe('Time Formatting', () => {
@@ -1138,6 +1173,234 @@ describe('PowerOffTimelineCard', () => {
     });
   });
 
+  describe('Charge mark', () => {
+    const HOUR = 3600000;
+    const full = (state, attributes = { label: 'Time to full' }) => ({ state, attributes });
+    // Power is on, next outage in `nextOffInHours`
+    const makeHass = (extra, { nextOffInHours = 3, power = 'on' } = {}) => ({
+      states: {
+        'sensor.power_state': {
+          ...mockHass.states['sensor.power_state'],
+          state: power,
+          attributes: {
+            ...mockHass.states['sensor.power_state'].attributes,
+            next_off: new Date(Date.now() + nextOffInHours * HOUR).toISOString(),
+          },
+        },
+        ...extra,
+      },
+    });
+    const config = (extra = {}) => card.setConfig({ entity: 'sensor.power_state', charge_entity: 'sensor.charge_time', ...extra });
+    const forecast = (hass, nextOffIso = null, powerOn = true) => {
+      card.hass = hass;
+      return card.chargeForecast(new Date(), nextOffIso, powerOn);
+    };
+    const showDayOf = (date) => {
+      card._userPickedTab = true;
+      card.selectedTab = date.toDateString() === new Date().toDateString() ? 'today' : 'tomorrow';
+      card.updateTimeline();
+    };
+
+    it('parses "0h 29m", "2h", "45m" and keeps the old formats', () => {
+      config();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 29m') })).hours).toBeCloseTo(29 / 60);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h') })).hours).toBeCloseTo(2);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('45m') })).hours).toBeCloseTo(0.75);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('1:30', {}) })).hours).toBeCloseTo(1.5);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('90', { unit_of_measurement: 'min' }) })).hours).toBeCloseTo(1.5);
+    });
+
+    it('accepts an ISO timestamp (device_class: timestamp) as the moment it is full', () => {
+      config();
+      const at = (h) => new Date(Date.now() + h * HOUR);
+      const ts = { device_class: 'timestamp' };
+      expect(forecast(makeHass({ 'sensor.charge_time': full(at(2).toISOString(), ts) })).hours).toBeCloseTo(2, 1);
+      // an offset form, as HA prints it, and a space instead of "T"
+      const offset = at(1.5).toISOString().replace('Z', '+00:00');
+      expect(forecast(makeHass({ 'sensor.charge_time': full(offset, ts) })).hours).toBeCloseTo(1.5, 1);
+      const local = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} `
+        + `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
+      expect(forecast(makeHass({ 'sensor.charge_time': full(local(at(3)), {}) })).hours).toBeCloseTo(3, 0);
+    });
+
+    it('scales a timestamp to the target like a duration', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      const f = forecast(makeHass({
+        'sensor.charge_time': full(new Date(Date.now() + 2 * HOUR).toISOString(), { device_class: 'timestamp' }),
+        'sensor.soc': { state: '50', attributes: {} },
+      }));
+      expect(f.hours).toBeCloseTo(1.2, 1);
+    });
+
+    it('has no forecast for a timestamp in the past or a date without a time', () => {
+      config();
+      const past = new Date(Date.now() - HOUR).toISOString();
+      expect(forecast(makeHass({ 'sensor.charge_time': full(past, { device_class: 'timestamp' }) }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2099-01-01', {}) }))).toBeNull();
+    });
+
+    it('accepts a timestamp for battery_entity too', () => {
+      card.setConfig({ entity: 'sensor.power_state', battery_entity: 'sensor.battery_runtime' });
+      card.hass = makeHass({ 'sensor.battery_runtime': { state: new Date(Date.now() + 1.5 * HOUR).toISOString(), attributes: { device_class: 'timestamp' } } });
+      expect(card.batteryHours()).toBeCloseTo(1.5, 1);
+    });
+
+    it('scales the time to the target percent', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      const f = forecast(makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } }));
+      expect(f.target).toBe(80);
+      expect(f.hours).toBeCloseTo(1.2, 2); // 2 h × (80 − 50) / (100 − 50)
+    });
+
+    it('reads the target from an entity', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 'input_number.target' });
+      const f = forecast(makeHass({
+        'sensor.charge_time': full('2h'),
+        'sensor.soc': { state: '50', attributes: {} },
+        'input_number.target': { state: '90', attributes: {} },
+      }));
+      expect(f.target).toBe(90);
+      expect(f.hours).toBeCloseTo(1.6, 2);
+    });
+
+    it('treats an invalid or missing target as 100', () => {
+      const states = { 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } };
+      [undefined, 'abc', 150, -5, 0, 'input_number.gone'].forEach((charge_target) => {
+        config({ charge_soc_entity: 'sensor.soc', charge_target });
+        const f = forecast(makeHass(states));
+        expect(f.target).toBe(100);
+        expect(f.hours).toBeCloseTo(2);
+      });
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 'input_number.t' });
+      const f = forecast(makeHass({ ...states, 'input_number.t': { state: 'unavailable', attributes: {} } }));
+      expect(f.target).toBe(100);
+    });
+
+    it('ignores a target below 100 when there is no usable soc', () => {
+      config({ charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h') })).hours).toBeCloseTo(2);
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: 'unavailable', attributes: {} } })).hours).toBeCloseTo(2);
+    });
+
+    it('has no forecast when it is discharging, empty, unavailable or already at the target', () => {
+      config();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 29m', { label: 'Time to empty' }) }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('0h 0m') }))).toBeNull();
+      expect(forecast(makeHass({ 'sensor.charge_time': full('unavailable', {}) }))).toBeNull();
+      expect(forecast(makeHass({}))).toBeNull();
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      expect(forecast(makeHass({ 'sensor.charge_time': full('1h'), 'sensor.soc': { state: '85', attributes: {} } }))).toBeNull();
+    });
+
+    it('compares the end of charging with the next power-off only while the power is on', () => {
+      config();
+      const states = { 'sensor.charge_time': full('1h') };
+      const off = new Date(Date.now() + 3 * HOUR).toISOString();
+      expect(forecast(makeHass(states), off, true).ok).toBe(true);
+      expect(forecast(makeHass({ 'sensor.charge_time': full('4h') }), off, true).ok).toBe(false);
+      expect(forecast(makeHass(states), off, false).ok).toBeNull();
+      expect(forecast(makeHass(states), null, true).ok).toBeNull();
+    });
+
+    it('shows nothing without charge_entity', () => {
+      card.setConfig({ entity: 'sensor.power_state' });
+      card.hass = makeHass({ 'sensor.charge_time': full('1h') });
+      expect(card.content.querySelector('.charge-mark')).toBeNull();
+      expect(card.content.querySelector('.charge-line')).toBeNull();
+      expect(card.content.querySelector('.legend-charge')).toBeNull();
+    });
+
+    it('draws a blue line at the charge-complete time and a legend item', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('1h') });
+      showDayOf(new Date(Date.now() + HOUR));
+      expect(card.content.querySelector('.charge-mark line')).not.toBeNull();
+      expect(card.content.querySelector('.charge-mark line[stroke="#1e88e5"]')).not.toBeNull();
+      expect(card.content.querySelector('.legend-charge')).not.toBeNull();
+    });
+
+    it('puts the line only on the tab of the day the charge ends', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('30h') }, { nextOffInHours: 40 });
+      card._userPickedTab = true;
+      card.selectedTab = 'today';
+      card.updateTimeline();
+      expect(card.content.querySelector('.charge-mark')).toBeNull(); // 30 h from now is never today
+      expect(card.content.querySelector('.charge-line')).not.toBeNull();
+      expect(card.content.querySelector('.charge-line').textContent).toContain('завтра');
+    });
+
+    it('says it fits when charging ends before the next outage', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('1h') }, { nextOffInHours: 3 }); // state: "on"
+      const line = card.content.querySelector('.charge-line');
+      expect(line.classList.contains('ok')).toBe(true);
+      expect(line.textContent).toContain('Зарядиться до 100% о');
+      expect(line.textContent).toContain('світло до');
+    });
+
+    it('warns when charging ends after the next outage', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('4h') }, { nextOffInHours: 3, power: 'Power ON' });
+      const line = card.content.querySelector('.charge-line');
+      expect(line.classList.contains('short')).toBe(true);
+      expect(line.classList.contains('ok')).toBe(false);
+    });
+
+    it('shows no comparison while the power is off', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('1h') }, { power: 'Power OFF' });
+      const line = card.content.querySelector('.charge-line');
+      expect(line).not.toBeNull();
+      expect(line.classList.contains('ok')).toBe(false);
+      expect(line.classList.contains('short')).toBe(false);
+      expect(line.textContent).not.toContain('світло до');
+    });
+
+    it('names the scaled target in the line', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 80 });
+      card.hass = makeHass({ 'sensor.charge_time': full('2h'), 'sensor.soc': { state: '50', attributes: {} } });
+      expect(card.content.querySelector('.charge-line').textContent).toContain('Зарядиться до 80% о');
+    });
+
+    it('hides everything while the sensor reports discharging', () => {
+      config();
+      card.hass = makeHass({ 'sensor.charge_time': full('0h 29m', { label: 'Time to empty' }) });
+      expect(card.content.querySelector('.charge-mark')).toBeNull();
+      expect(card.content.querySelector('.charge-line')).toBeNull();
+    });
+
+    it('re-renders when only the charge, soc or target entity changes', () => {
+      config({ charge_soc_entity: 'sensor.soc', charge_target: 'input_number.target' });
+      const states = {
+        'sensor.charge_time': full('2h'),
+        'sensor.soc': { state: '50', attributes: {} },
+        'input_number.target': { state: '80', attributes: {} },
+      };
+      const hass = makeHass(states, { nextOffInHours: 3 });
+      card.hass = hass;
+      expect(card.content.querySelector('.charge-line').textContent).toContain('до 80%');
+      card.hass = { states: { ...hass.states, 'input_number.target': { state: '90', attributes: {} } } };
+      expect(card.content.querySelector('.charge-line').textContent).toContain('до 90%');
+      card.hass = { states: { ...hass.states, 'sensor.soc': { state: '60', attributes: {} } } };
+      expect(card.content.querySelector('.charge-line').textContent).toContain('до 80%');
+      card.hass = { states: { ...hass.states, 'sensor.charge_time': full('5h') } };
+      expect(card.content.querySelector('.charge-line').classList.contains('short')).toBe(true);
+    });
+
+    it('can show the red and the blue line together', () => {
+      card.setConfig({ entity: 'sensor.power_state', battery_entity: 'sensor.battery_runtime', charge_entity: 'sensor.charge_time' });
+      card.hass = makeHass({
+        'sensor.battery_runtime': { state: '1', attributes: { unit_of_measurement: 'h' } },
+        'sensor.charge_time': full('0h 30m'),
+      });
+      showDayOf(new Date());
+      expect(card.content.querySelector('.battery-line')).not.toBeNull();
+      expect(card.content.querySelector('.charge-line')).not.toBeNull();
+    });
+  });
+
   describe('Visual editor', () => {
     const Card = () => dom.window.customElements.get('poweroff-timeline-card');
     const withSelect = () => ({
@@ -1154,12 +1417,18 @@ describe('PowerOffTimelineCard', () => {
     it('describes the options for the built-in form editor', () => {
       const form = Card().getConfigForm();
       expect(form.schema.map((f) => f.name)).toEqual([
-        'entity', 'show_queue_switcher', 'queue_entity', 'battery_entity', 'auto_tomorrow',
+        'entity', 'show_queue_switcher', 'queue_entity', 'battery_entity',
+        'charge_entity', 'charge_soc_entity', 'charge_target', 'auto_tomorrow',
       ]);
       expect(form.schema[0].required).toBe(true);
       expect(form.schema[0].selector.entity.filter).toEqual({ integration: 'poltava_poweroff', domain: 'sensor' });
       expect(form.computeLabel({ name: 'battery_entity' })).toBe('Час роботи акумулятора');
       expect(form.computeHelper({ name: 'battery_entity' })).toContain('червону лінію');
+      expect(form.computeLabel({ name: 'charge_entity' })).toBe('Час до повного заряду');
+      expect(form.computeLabel({ name: 'charge_soc_entity' })).toBe('Сенсор заряду, %');
+      expect(form.computeLabel({ name: 'charge_target' })).toBe('Заряджати до, %');
+      expect(form.computeHelper({ name: 'charge_entity' })).toContain('синю лінію');
+      expect(form.computeHelper({ name: 'charge_target' })).toContain('100');
     });
 
     it('refuses the visual editor for the old queue_entity: false', () => {
