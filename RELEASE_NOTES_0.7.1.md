@@ -4,11 +4,7 @@ Released: 2026-11-24
 
 ## ✨ Features
 
-- feat: status chips under the legend instead of separate battery and charge lines (#14)
-
-## 🔧 Other Changes
-
-- Show when the battery finishes charging (blue mark) (#12)
+- Status chips under the legend instead of separate battery and charge lines (#14): the next outage, the charge-complete time and the battery runout, each with its margin or shortfall
 
 ## 🔄 Update Instructions
 
