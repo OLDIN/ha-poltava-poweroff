@@ -173,6 +173,7 @@ const CARD_STYLES = `
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
   .legend-battery { width: 4px; height: 18px; border-radius: 2px; background: #e53935; }
+  .legend-charge { width: 4px; height: 18px; border-radius: 2px; background: #1e88e5; }
   .next-line { font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .next-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
   .battery-line { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
@@ -180,6 +181,11 @@ const CARD_STYLES = `
   .battery-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
   .battery-line ha-icon, .battery-line b.until { color: #e53935; }
   .battery-line.ok ha-icon { color: rgb(144 238 144); }
+  .charge-line { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
+  .charge-line ha-icon { --mdc-icon-size: 18px; flex-shrink: 0; color: #1e88e5; }
+  .charge-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
+  .charge-line.ok ha-icon { color: rgb(144 238 144); }
+  .charge-line.short ha-icon, .charge-line.short b.until { color: #e53935; }
 
   .info-banner, .stale-banner {
     display: flex;
@@ -396,11 +402,14 @@ class PowerOffTimelineCard extends HTMLElement {
     const queueId = this.findQueueEntity(hass);
     const queueObj = queueId ? hass.states[queueId] : undefined;
     const batteryObj = this.config.battery_entity ? hass.states[this.config.battery_entity] : undefined;
+    const chargeObjs = this.chargeStates(hass);
     if (
       this.card &&
       stateObj === this._lastState &&
       queueObj === this._lastQueueState &&
       batteryObj === this._lastBatteryState &&
+      chargeObjs.length === (this._lastChargeStates || []).length &&
+      chargeObjs.every((obj, i) => obj === this._lastChargeStates[i]) &&
       Date.now() - this._lastRenderAt < 60000
     ) {
       return;
@@ -408,12 +417,20 @@ class PowerOffTimelineCard extends HTMLElement {
     this._lastState = stateObj;
     this._lastQueueState = queueObj;
     this._lastBatteryState = batteryObj;
+    this._lastChargeStates = chargeObjs;
 
     if (!this.card) {
       this.buildSkeleton();
     }
 
     this.updateTimeline();
+  }
+
+  /** State objects the charge mark depends on (sensor, charge level, target when it is an entity), for change detection. */
+  chargeStates(hass) {
+    const { charge_entity: charge, charge_soc_entity: soc, charge_target: target } = this.config;
+    if (!charge) return [];
+    return [charge, soc, typeof target === 'string' ? target : undefined].map((id) => (id ? hass.states[id] : undefined));
   }
 
   buildSkeleton() {
@@ -620,13 +637,19 @@ class PowerOffTimelineCard extends HTMLElement {
       : null;
     // The "battery empty" mark goes on the tab of the day the battery runs out.
     const batteryMark = battery && battery.until.toDateString() === displayDate.toDateString() ? battery : null;
+    // Charging: the blue mark goes on the tab of the day it finishes; the "light until" comparison needs the power on.
+    const powerOn = /^(on|power on)$/i.test(String(sensor.state).trim());
+    const charge = !loading && this.config.charge_entity && shownQueue === this._homeQueue
+      ? this.chargeForecast(now, (sensor.attributes || {}).next_off, powerOn)
+      : null;
+    const chargeMark = charge && charge.done.toDateString() === displayDate.toDateString() ? charge : null;
 
     const viewEntity = { ...entity, attributes: { ...attrs, queue: shownQueue } };
     this.content.innerHTML = `
       <div class="spiral-wrapper">
         ${this.renderViewBanner(queueObj, shownQueue)}
         ${loading ? '' : this.renderStaleBanner(entity)}
-        ${this.renderSpiral(pattern, currentIndex, displayDate, viewEntity, this.selectedTab, loading, batteryMark)}
+        ${this.renderSpiral(pattern, currentIndex, displayDate, viewEntity, this.selectedTab, loading, batteryMark, chargeMark)}
         ${loading ? '' : this.renderNoDataNote(entity)}
         <div class="legend">
           <div class="legend-item">
@@ -641,9 +664,14 @@ class PowerOffTimelineCard extends HTMLElement {
             <span class="legend-dot legend-battery"></span>
             <span>Акумулятор сяде</span>
           </div>` : ''}
+          ${chargeMark ? `<div class="legend-item">
+            <span class="legend-dot legend-charge"></span>
+            <span>Зарядиться</span>
+          </div>` : ''}
         </div>
         <div class="next-line">${this.renderNextLine(nextOff, nextOn, loading)}</div>
         ${battery ? this.renderBatteryLine(battery) : ''}
+        ${charge ? this.renderChargeLine(charge) : ''}
         ${loading ? this.renderLoadingLine(shownQueue) : this.renderUpdatedLine(entity)}
       </div>
     `;
@@ -759,6 +787,19 @@ class PowerOffTimelineCard extends HTMLElement {
     `;
   }
 
+  /** Blue radial line across the spiral band at the moment the battery finishes charging. */
+  renderChargeMark(done) {
+    const g = this.batteryMarkGeometry(done.getHours() + done.getMinutes() / 60);
+    const line = `x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" stroke-linecap="round"`;
+    return `
+      <g class="charge-mark">
+        <line ${line} stroke="rgba(0,0,0,0.55)" stroke-width="8"></line>
+        <line ${line} stroke="#1e88e5" stroke-width="4"></line>
+        <circle cx="${g.x2}" cy="${g.y2}" r="5" fill="#1e88e5" stroke="rgba(0,0,0,0.55)" stroke-width="2"></circle>
+      </g>
+    `;
+  }
+
   /**
    * The card re-renders via innerHTML, so a CSS transition can't move the mark, and it
    * travels along a spiral anyway (not a circle). Instead: draw it at the previously shown
@@ -819,12 +860,21 @@ class PowerOffTimelineCard extends HTMLElement {
       : `<div class="battery-line short"><ha-icon icon="${icon}"></ha-icon><span>Заряду не вистачить: до <b class="until">${until}</b>, світло о <b>${on}</b></span></div>`;
   }
 
+  /** "Зарядиться до 90% о 17:25, світло до 18:00": green when it fits before the next outage, red when it does not. */
+  renderChargeLine(charge) {
+    const state = charge.ok === null ? '' : charge.ok ? ' ok' : ' short';
+    const icon = charge.ok === false ? 'mdi:battery-alert-variant-outline' : 'mdi:battery-charging';
+    const done = `<b${charge.ok === false ? ' class="until"' : ''}>${this.formatWhen(charge.done)}</b>`;
+    const light = charge.until ? `, світло до <b>${this.formatWhen(charge.until)}</b>` : '';
+    return `<div class="charge-line${state}"><ha-icon icon="${icon}"></ha-icon><span>Зарядиться до ${Math.round(charge.target)}% о ${done}${light}</span></div>`;
+  }
+
   /** "HH:MM", with "завтра" (tomorrow) in front when the moment is not today. */
   formatWhen(date) {
     return `${this.isTomorrow(date) ? 'завтра ' : ''}${this.formatTime(date.toISOString())}`;
   }
 
-  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false, battery = null) {
+  renderSpiral(pattern, currentIndex, displayDate, entity, selectedTab, loading = false, battery = null, charge = null) {
     const SEGMENT_COLORS = {
       0: 'rgb(255 182 193)', // pink: outage
       1: 'rgb(144 238 144)', // light green: power on
@@ -879,6 +929,7 @@ class PowerOffTimelineCard extends HTMLElement {
           ${segments}
           ${hourLabels}
           ${battery ? this.renderBatteryMark(battery.until) : ''}
+          ${charge ? this.renderChargeMark(charge.done) : ''}
           <text class="spiral-center-text center-queue" x="0" y="-20">${this.escape(queue)} черга</text>
           <text class="spiral-center-text center-date" x="0" y="10">${dateStr}</text>
           ${stats}
