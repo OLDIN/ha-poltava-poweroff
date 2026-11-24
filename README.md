@@ -206,10 +206,12 @@ battery_entity: sensor.ups_runtime   # remaining runtime: hours, or min / s / d 
 
 ![Battery runout mark](https://raw.githubusercontent.com/OLDIN/ha-poltava-poweroff/main/pics/card_battery.gif)
 
-- A **red line** on the spiral marks the moment the battery runs out (on the tab of that day), with a legend item.
+- A **red line** on the spiral marks the moment the battery runs out (on the tab of that day).
   When the load changes and the forecast jumps, the line glides along the spiral to its new spot instead of jumping.
-- A line under the spiral compares it with the next power-on (the end of the current or next outage of your home queue):
-  *«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 03:21, світло о 04:00»*.
+- Under the legend the card shows **status chips**: the next outage, plus a red chip *«сяде о 03:21 · не вистачає 39 хв»*
+  that compares the runout with the next power-on (the end of the current or next outage of your home queue).
+  The coloured bar of a chip is the key for its mark on the spiral, so there are no extra legend items.
+  The small line is green with the margin (*«запас 1 год»*) or red with what is missing; with more than a day of charge it says *«понад добу»*.
 - Without `battery_entity`, while the sensor is unavailable, or while another queue is shown in the switcher, the card looks exactly as before.
 
 #### Charge-complete mark (optional)
@@ -229,9 +231,9 @@ charge_target: input_number.battery_charge_target  # optional: a number (80) or 
   `device_class: timestamp` reports. A moment that has already passed, or a date without a time, shows nothing.
   The same formats work for `battery_entity`. If you can choose, a numeric `duration` sensor (or a `timestamp`) is the
   cleanest input; the text forms exist for sensors you cannot change.
-- A **blue line** on the spiral marks the moment charging finishes (on the tab of that day), with a legend item.
-  The line under the spiral reads *«Зарядиться до 90% о 17:25, світло до 18:00»*: green when charging ends before
-  the next outage, red when it does not. While the power is off there is no comparison.
+- A **blue line** on the spiral marks the moment charging finishes (on the tab of that day).
+  A blue chip reads *«90% о 17:25 · запас 35 хв»*: green with the margin when charging ends before the next outage,
+  red with *«не вистачає …»* when it does not. While the power is off the small line just says *«зарядка»*.
 - With a `charge_target` below 100 the sensor's time to 100% is scaled by the remaining percent:
   `time × (target − charge) / (100 − charge)`. It is a linear approximation (good for LiFePO4 up to ~95%).
   Without a readable `charge_soc_entity` the target is ignored and 100% is used.

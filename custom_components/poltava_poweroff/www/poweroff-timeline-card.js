@@ -172,20 +172,15 @@ const CARD_STYLES = `
   .legend { display: flex; gap: 4px 18px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 18px; height: 18px; border-radius: 4px; }
-  .legend-battery { width: 4px; height: 18px; border-radius: 2px; background: #e53935; }
-  .legend-charge { width: 4px; height: 18px; border-radius: 2px; background: #1e88e5; }
   .next-line { font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
   .next-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
-  .battery-line { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
-  .battery-line ha-icon { --mdc-icon-size: 18px; flex-shrink: 0; }
-  .battery-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
-  .battery-line ha-icon, .battery-line b.until { color: #e53935; }
-  .battery-line.ok ha-icon { color: rgb(144 238 144); }
-  .charge-line { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--secondary-text-color, #b5b5b5); }
-  .charge-line ha-icon { --mdc-icon-size: 18px; flex-shrink: 0; color: #1e88e5; }
-  .charge-line b { font-weight: 600; color: var(--primary-text-color); white-space: nowrap; }
-  .charge-line.ok ha-icon { color: rgb(144 238 144); }
-  .charge-line.short ha-icon, .charge-line.short b.until { color: #e53935; }
+  .status-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: 100%; }
+  .chip { flex: 1 1 130px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; text-align: left; background: var(--secondary-background-color, rgba(127, 127, 127, 0.14)); }
+  .chip-bar { flex-shrink: 0; width: 4px; height: 30px; border-radius: 2px; }
+  .chip b { display: block; font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
+  .chip small { display: block; font-size: 12px; color: var(--secondary-text-color, #b5b5b5); }
+  .chip.ok small { color: rgb(144 238 144); }
+  .chip.short small { color: #ff7f7c; }
 
   .info-banner, .stale-banner {
     display: flex;
@@ -682,18 +677,10 @@ class PowerOffTimelineCard extends HTMLElement {
             <span class="legend-dot" style="background:rgb(144 238 144);"></span>
             <span>Світло є</span>
           </div>
-          ${batteryMark ? `<div class="legend-item">
-            <span class="legend-dot legend-battery"></span>
-            <span>Акумулятор сяде</span>
-          </div>` : ''}
-          ${chargeMark ? `<div class="legend-item">
-            <span class="legend-dot legend-charge"></span>
-            <span>Зарядиться</span>
-          </div>` : ''}
         </div>
-        <div class="next-line">${this.renderNextLine(nextOff, nextOn, loading)}</div>
-        ${battery ? this.renderBatteryLine(battery) : ''}
-        ${charge ? this.renderChargeLine(charge) : ''}
+        ${battery || charge
+          ? this.renderStatusChips(nextOff, nextOn, battery, charge)
+          : `<div class="next-line">${this.renderNextLine(nextOff, nextOn, loading)}</div>`}
         ${loading ? this.renderLoadingLine(shownQueue) : this.renderUpdatedLine(entity)}
       </div>
     `;
@@ -867,28 +854,49 @@ class PowerOffTimelineCard extends HTMLElement {
     this._markAnim = requestAnimationFrame(step);
   }
 
-  renderBatteryLine(battery) {
-    const icon = battery.ok ? 'mdi:battery-check-outline' : 'mdi:battery-alert-variant-outline';
-    if (battery.hours >= 24 && battery.ok) {
-      return `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить більше ніж на добу</span></div>`;
-    }
-    const until = this.formatWhen(battery.until);
-    if (!battery.target) {
-      return `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить до <b>${until}</b></span></div>`;
-    }
-    const on = this.formatWhen(battery.target);
-    return battery.ok
-      ? `<div class="battery-line ok"><ha-icon icon="${icon}"></ha-icon><span>Заряду вистачить до <b>${until}</b>, світло о <b>${on}</b></span></div>`
-      : `<div class="battery-line short"><ha-icon icon="${icon}"></ha-icon><span>Заряду не вистачить: до <b class="until">${until}</b>, світло о <b>${on}</b></span></div>`;
+  /** "45 хв", "2 год", "1 год 30 хв": a span of time, rounded to minutes. */
+  formatSpan(ms) {
+    const total = Math.round(Math.abs(ms) / 60000);
+    if (total < 60) return `${total} хв`;
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    return minutes ? `${hours} год ${minutes} хв` : `${hours} год`;
   }
 
-  /** "Зарядиться до 90% о 17:25, світло до 18:00": green when it fits before the next outage, red when it does not. */
-  renderChargeLine(charge) {
-    const state = charge.ok === null ? '' : charge.ok ? ' ok' : ' short';
-    const icon = charge.ok === false ? 'mdi:battery-alert-variant-outline' : 'mdi:battery-charging';
-    const done = `<b${charge.ok === false ? ' class="until"' : ''}>${this.formatWhen(charge.done)}</b>`;
-    const light = charge.until ? `, світло до <b>${this.formatWhen(charge.until)}</b>` : '';
-    return `<div class="charge-line${state}"><ha-icon icon="${icon}"></ha-icon><span>Зарядиться до ${Math.round(charge.target)}% о ${done}${light}</span></div>`;
+  /**
+   * Chips under the legend when a battery or charge sensor is set: the next outage, when charging
+   * finishes and when the battery runs out. The coloured bar of a chip is the key for its mark on the spiral.
+   * The small line says whether it fits: green with a margin, red with how much is missing.
+   */
+  renderStatusChips(nextOff, nextOn, battery, charge) {
+    const next = this.nextEvent(nextOff, nextOn);
+    const chip = (kind, color, big, small, state = '') =>
+      `<div class="chip chip-${kind}${state ? ` ${state}` : ''}"><i class="chip-bar" style="background:${color}"></i><div><b>${big}</b><small>${small}</small></div></div>`;
+    const chips = [chip('next', next.kind === 'on' ? 'rgb(144 238 144)' : 'rgb(255 182 193)', next.value, next.label)];
+    if (charge) {
+      const small = charge.ok === null
+        ? 'зарядка'
+        : charge.ok
+          ? `запас ${this.formatSpan(charge.until - charge.done)}`
+          : `не вистачає ${this.formatSpan(charge.done - charge.until)}`;
+      const state = charge.ok === null ? '' : charge.ok ? 'ok' : 'short';
+      chips.push(chip('charge', '#1e88e5', `${Math.round(charge.target)}% о ${this.formatWhen(charge.done)}`, small, state));
+    }
+    if (battery) {
+      if (battery.hours >= 24 && battery.ok) {
+        chips.push(chip('battery', '#e53935', 'понад добу', 'заряду вистачить', 'ok'));
+      } else {
+        const big = `сяде о ${this.formatWhen(battery.until)}`;
+        if (!battery.target) {
+          chips.push(chip('battery', '#e53935', big, 'заряду вистачить', 'ok'));
+        } else if (battery.ok) {
+          chips.push(chip('battery', '#e53935', big, `запас ${this.formatSpan(battery.until - battery.target)}`, 'ok'));
+        } else {
+          chips.push(chip('battery', '#e53935', big, `не вистачає ${this.formatSpan(battery.target - battery.until)}`, 'short'));
+        }
+      }
+    }
+    return `<div class="status-chips">${chips.join('')}</div>`;
   }
 
   /** "HH:MM", with "завтра" (tomorrow) in front when the moment is not today. */
@@ -989,21 +997,27 @@ class PowerOffTimelineCard extends HTMLElement {
     if (loading) {
       return 'Наступне відключення: …';
     }
+    return this.nextEvent(nextOff, nextOn).line;
+  }
+
+  /** The next event as { kind, label, value, line }: `line` is the sentence, `label` and `value` feed a chip. */
+  nextEvent(nextOff, nextOn) {
     const off = nextOff ? new Date(nextOff) : null;
     const on = nextOn ? new Date(nextOn) : null;
     const valid = (d) => d && !Number.isNaN(d.getTime());
     const when = (d) => this.formatWhen(d);
     if (valid(on) && (!valid(off) || on < off)) {
-      return `Світло з'явиться о <b>${when(on)}</b>`;
+      return { kind: 'on', label: 'Світло з\'явиться', value: when(on), line: `Світло з'явиться о <b>${when(on)}</b>` };
     }
     if (valid(off) && valid(on)) {
       const sameDay = off.toDateString() === on.toDateString();
-      return `Наступне відключення: <b>${when(off)} – ${sameDay ? this.formatTime(on.toISOString()) : when(on)}</b>`;
+      const value = `${when(off)} – ${sameDay ? this.formatTime(on.toISOString()) : when(on)}`;
+      return { kind: 'off', label: 'Наступне відключення', value, line: `Наступне відключення: <b>${value}</b>` };
     }
     if (valid(off)) {
-      return `Наступне відключення: <b>${when(off)}</b>`;
+      return { kind: 'off', label: 'Наступне відключення', value: when(off), line: `Наступне відключення: <b>${when(off)}</b>` };
     }
-    return 'Найближчих відключень немає';
+    return { kind: 'off', label: 'Найближчі відключення', value: 'немає', line: 'Найближчих відключень немає' };
   }
 
   isTomorrow(date) {
