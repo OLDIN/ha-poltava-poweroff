@@ -185,6 +185,7 @@ entity: sensor.power_state          # required
 # show_queue_switcher: false                  # optional: hide the queue switcher (default true)
 # queue_entity: select.poweroff_view_queue   # optional: found automatically
 # battery_entity: sensor.ups_runtime          # optional: battery runtime left, see below
+# charge_entity: sensor.battery_time_to_full  # optional: time to full charge, see below
 # auto_tomorrow: false                        # optional: don't switch to tomorrow when today's outages are over
 ```
 
@@ -210,6 +211,29 @@ battery_entity: sensor.ups_runtime   # remaining runtime: hours, or min / s / d 
 - A line under the spiral compares it with the next power-on (the end of the current or next outage of your home queue):
   *«Заряду вистачить до 18:40, світло о 17:00»* or, highlighted, *«Заряду не вистачить: до 03:21, світло о 04:00»*.
 - Without `battery_entity`, while the sensor is unavailable, or while another queue is shown in the switcher, the card looks exactly as before.
+
+#### Charge-complete mark (optional)
+
+The same card can show when the battery finishes charging, so you see whether it fits into the time the power is on:
+
+```yaml
+type: custom:poweroff-timeline-card
+entity: sensor.power_state
+charge_entity: sensor.battery_time_to_full        # time to full charge
+charge_soc_entity: sensor.battery_level           # optional: charge level, %, only needed for a target below 100
+charge_target: input_number.battery_charge_target  # optional: a number (80) or an entity; default 100
+```
+
+- `charge_entity` accepts hours (or `min` / `s` / `d` units), `"H:MM"` and `"0h 29m"` / `"2h"` / `"45m"` strings.
+- A **blue line** on the spiral marks the moment charging finishes (on the tab of that day), with a legend item.
+  The line under the spiral reads *«Зарядиться до 90% о 17:25, світло до 18:00»*: green when charging ends before
+  the next outage, red when it does not. While the power is off there is no comparison.
+- With a `charge_target` below 100 the sensor's time to 100% is scaled by the remaining percent:
+  `time × (target − charge) / (100 − charge)`. It is a linear approximation (good for LiFePO4 up to ~95%).
+  Without a readable `charge_soc_entity` the target is ignored and 100% is used.
+- Nothing is shown when the sensor is unavailable, the time is zero, its `label` attribute contains "empty"
+  (some BMS report «Time to empty» while discharging) or the charge is already at the target.
+- Like the red mark, it is only shown for your home queue.
 
 The integration ships its own icon and logo in `custom_components/poltava_poweroff/brand/` (supported since Home Assistant 2026.3), so it shows up on **Settings → Devices & Services** without an entry in the `home-assistant/brands` repository.
 

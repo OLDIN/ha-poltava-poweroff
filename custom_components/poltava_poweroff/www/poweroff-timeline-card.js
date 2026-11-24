@@ -286,6 +286,9 @@ const EDITOR_LABELS = {
   show_queue_switcher: 'Показувати перемикач черг',
   queue_entity: 'Сутність перемикача черг',
   battery_entity: 'Час роботи акумулятора',
+  charge_entity: 'Час до повного заряду',
+  charge_soc_entity: 'Сенсор заряду, %',
+  charge_target: 'Заряджати до, %',
   auto_tomorrow: 'Автоматично перемикати на «Завтра»',
 };
 const EDITOR_HELPERS = {
@@ -294,6 +297,15 @@ const EDITOR_HELPERS = {
   battery_entity:
     'Необов\'язково. Сенсор із залишком часу роботи акумулятора чи ДБЖ (год, хв, с або «Г:ХХ»). '
     + 'Картка покаже червону лінію, коли він сяде.',
+  charge_entity:
+    'Необов\'язково. Сенсор із часом до повного заряду (год, хв, с, «Г:ХХ» або «0h 29m»). '
+    + 'Картка покаже синю лінію, коли акумулятор зарядиться.',
+  charge_soc_entity:
+    'Потрібен, лише якщо заряджати не до 100%: заряд акумулятора у відсотках. '
+    + 'Час до повного заряду буде перераховано до вибраної цілі.',
+  charge_target:
+    'До скількох відсотків заряджати: сутність, наприклад повзунок input_number. '
+    + 'Порожньо: 100. Число можна вказати в YAML (charge_target: 80).',
   auto_tomorrow: 'Коли сьогоднішні відключення минули, показувати графік на завтра.',
 };
 
@@ -339,6 +351,9 @@ class PowerOffTimelineCard extends HTMLElement {
         { name: 'show_queue_switcher', default: true, selector: { boolean: {} } },
         { name: 'queue_entity', selector: { entity: { filter: { integration: 'poltava_poweroff', domain: 'select' } } } },
         { name: 'battery_entity', selector: { entity: { filter: { domain: 'sensor' } } } },
+        { name: 'charge_entity', selector: { entity: { filter: { domain: 'sensor' } } } },
+        { name: 'charge_soc_entity', selector: { entity: { filter: { domain: 'sensor' } } } },
+        { name: 'charge_target', selector: { entity: { filter: { domain: ['input_number', 'number', 'sensor'] } } } },
         { name: 'auto_tomorrow', default: true, selector: { boolean: {} } },
       ],
       computeLabel: (schema) => EDITOR_LABELS[schema.name],

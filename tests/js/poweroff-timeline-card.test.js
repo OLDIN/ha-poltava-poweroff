@@ -1347,12 +1347,18 @@ describe('PowerOffTimelineCard', () => {
     it('describes the options for the built-in form editor', () => {
       const form = Card().getConfigForm();
       expect(form.schema.map((f) => f.name)).toEqual([
-        'entity', 'show_queue_switcher', 'queue_entity', 'battery_entity', 'auto_tomorrow',
+        'entity', 'show_queue_switcher', 'queue_entity', 'battery_entity',
+        'charge_entity', 'charge_soc_entity', 'charge_target', 'auto_tomorrow',
       ]);
       expect(form.schema[0].required).toBe(true);
       expect(form.schema[0].selector.entity.filter).toEqual({ integration: 'poltava_poweroff', domain: 'sensor' });
       expect(form.computeLabel({ name: 'battery_entity' })).toBe('Час роботи акумулятора');
       expect(form.computeHelper({ name: 'battery_entity' })).toContain('червону лінію');
+      expect(form.computeLabel({ name: 'charge_entity' })).toBe('Час до повного заряду');
+      expect(form.computeLabel({ name: 'charge_soc_entity' })).toBe('Сенсор заряду, %');
+      expect(form.computeLabel({ name: 'charge_target' })).toBe('Заряджати до, %');
+      expect(form.computeHelper({ name: 'charge_entity' })).toContain('синю лінію');
+      expect(form.computeHelper({ name: 'charge_target' })).toContain('100');
     });
 
     it('refuses the visual editor for the old queue_entity: false', () => {
